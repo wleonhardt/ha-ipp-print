@@ -8,6 +8,11 @@ reasons.
 Ships with a companion Lovelace card so a "Print PDF" tile on your dashboard
 is a single tap.
 
+> 💡 **Sister project:** for triggering scans on the same multifunction
+> printers, see [**ha-escl-scan**](https://github.com/wleonhardt/ha-escl-scan)
+> — same architecture (per-job sensor + Lovelace card + bus events) targeting
+> eSCL / AirScan instead of IPP.
+
 <p align="center">
   <img src="assets/card-idle.png" width="320" alt="Idle card" />
   <img src="assets/card-printing.png" width="320" alt="Printing card" />
