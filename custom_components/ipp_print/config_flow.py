@@ -84,19 +84,22 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        return IppPrintOptionsFlow(config_entry)
+        return IppPrintOptionsFlow()
 
 
 class IppPrintOptionsFlow(OptionsFlow):
-    """Edit credentials/options without re-creating the entry."""
+    """Edit credentials/options without re-creating the entry.
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self._entry = config_entry
+    Note: modern HA injects `self.config_entry` automatically. The older
+    pattern of accepting the entry in `__init__` short-circuits HA's
+    update-listener wiring, which is why this class deliberately has no
+    constructor.
+    """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
-        data = {**self._entry.data, **self._entry.options}
+        data = {**self.config_entry.data, **self.config_entry.options}
         schema = vol.Schema(
             {
                 vol.Required(CONF_HOST, default=data.get(CONF_HOST, "")): str,

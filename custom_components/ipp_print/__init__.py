@@ -59,7 +59,9 @@ def _safe_pdf_filename(filename: str | None) -> str:
     return name[:120]
 
 
-def _card_url() -> str:
+def _card_url_sync() -> str:
+    """Compute the content-hashed card URL. Reads card.js from disk;
+    must be called from an executor, not the event loop."""
     digest = hashlib.sha256(_CARD_FILE.read_bytes()).hexdigest()[:12]
     return f"{CARD_URL_PREFIX}{digest}.js"
 
@@ -86,8 +88,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
     }
 
-    hass.http.register_view(PrintView(client, coordinator))
-    hass.http.register_view(CancelView(coordinator))
+    # Views look up the live coordinator/client from hass.data on every
+    # request so options-flow reloads (which build a new coordinator) take
+    # effect without re-registering the URLs.
+    if not hass.data[DOMAIN].get("_views_registered"):
+        hass.http.register_view(PrintView(hass))
+        hass.http.register_view(CancelView(hass))
+        hass.data[DOMAIN]["_views_registered"] = True
     _LOGGER.info(
         "%s: endpoints ready at /api/%s/{print,cancel} (printer=%s)",
         DOMAIN, DOMAIN, data[CONF_HOST],
@@ -98,7 +105,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Serve the upload card with a content-hash URL so browsers re-fetch
     # on every edit. Idempotent across reloads — register_static_paths
     # over the same path replaces the prior registration.
-    card_url = _card_url()
+    card_url = await hass.async_add_executor_job(_card_url_sync)
     await hass.http.async_register_static_paths(
         [StaticPathConfig(card_url, str(_CARD_FILE), False)]
     )
@@ -162,6 +169,17 @@ async def _sync_lovelace_resource(hass: HomeAssistant, card_url: str) -> None:
         _LOGGER.exception("failed to sync lovelace resources")
 
 
+def _live_entry(hass: HomeAssistant) -> dict | None:
+    """Return the dict for the most-recently-configured entry, or None."""
+    entries = hass.data.get(DOMAIN, {})
+    for key, entry_data in entries.items():
+        if key.startswith("_"):
+            continue
+        if "coordinator" in entry_data and "client" in entry_data:
+            return entry_data
+    return None
+
+
 class PrintView(HomeAssistantView):
     """POST /api/ipp_print/print
 
@@ -173,11 +191,8 @@ class PrintView(HomeAssistantView):
     name = "api:ipp_print:print"
     requires_auth = True
 
-    def __init__(
-        self, client: PrinterClient, coordinator: JobCoordinator
-    ) -> None:
-        self._client = client
-        self._coordinator = coordinator
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
 
     async def post(self, request: web.Request) -> web.Response:
         try:
@@ -213,9 +228,15 @@ class PrintView(HomeAssistantView):
                 "not a PDF (magic bytes mismatch)", status_code=415
             )
 
+        live = _live_entry(self._hass)
+        if live is None:
+            return self.json_message("integration not configured", status_code=503)
+        client = live["client"]
+        coordinator = live["coordinator"]
+
         body = bytes(buf)
         try:
-            result = await self._client.print_job(
+            result = await client.print_job(
                 job_name=filename,
                 document_format="application/pdf",
                 document=body,
@@ -236,7 +257,7 @@ class PrintView(HomeAssistantView):
                 "printer did not return a job-id", status_code=502
             )
 
-        self._coordinator.track(
+        coordinator.track(
             job_id=result.job_id,
             filename=filename,
             bytes_sent=len(body),
@@ -259,8 +280,8 @@ class CancelView(HomeAssistantView):
     name = "api:ipp_print:cancel"
     requires_auth = True
 
-    def __init__(self, coordinator: JobCoordinator) -> None:
-        self._coordinator = coordinator
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
 
     async def post(self, request: web.Request) -> web.Response:
         try:
@@ -272,7 +293,10 @@ class CancelView(HomeAssistantView):
             return self.json_message(
                 "missing or invalid 'job_id'", status_code=400
             )
-        ok = await self._coordinator.async_cancel(job_id)
+        live = _live_entry(self._hass)
+        if live is None:
+            return self.json_message("integration not configured", status_code=503)
+        ok = await live["coordinator"].async_cancel(job_id)
         if not ok:
             return self.json_message("printer refused cancel", status_code=502)
         return self.json({"ok": True, "job_id": job_id})
