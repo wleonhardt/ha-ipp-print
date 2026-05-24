@@ -1,0 +1,8 @@
+{
+  "name": "IPP Print",
+  "render_readme": true,
+  "homeassistant": "2024.8.0",
+  "iot_class": "local_polling",
+  "country": [],
+  "domains": ["sensor"]
+}

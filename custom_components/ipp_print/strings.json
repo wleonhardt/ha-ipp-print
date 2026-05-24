@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "IPP printer",
+        "description": "Connect to a network printer via IPP. For HTTPS printers with self-signed certs, leave verify off. If you see SSL handshake failures, enable relaxed ciphers (needed for some HP LaserJet models that only offer non-PFS ciphers).",
+        "data": {
+          "host": "Hostname or IP",
+          "port": "Port (443 for IPPS, 631 for IPP, 80 for HTTP)",
+          "use_tls": "Use TLS (https/ipps)",
+          "user": "IPP requesting-user-name",
+          "password": "Password (only if printer requires basic auth)",
+          "verify_tls": "Verify TLS certificate",
+          "relaxed_ciphers": "Allow legacy cipher suites"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the printer. Check host/port/TLS settings. Detail: {error_detail}"
+    },
+    "abort": {
+      "already_configured": "This printer is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "IPP printer options",
+        "data": {
+          "host": "Hostname or IP",
+          "port": "Port",
+          "use_tls": "Use TLS",
+          "user": "IPP requesting-user-name",
+          "password": "Password",
+          "verify_tls": "Verify TLS certificate",
+          "relaxed_ciphers": "Allow legacy cipher suites"
+        }
+      }
+    }
+  }
+}
