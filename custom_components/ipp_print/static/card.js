@@ -39,16 +39,22 @@ C.prototype._render = function () {
   const root = this.attachShadow({ mode: 'open' });
   root.innerHTML = `
     <style>
-      :host { display: block; }
+      :host {
+        display: block;
+        /* Set up a size-based container so children can adapt to the
+           card's own width — covers the case where a horizontal-stack
+           shrinks each card narrow even on a wide viewport. */
+        container-type: inline-size;
+      }
       ha-card {
-        padding: 22px 18px;
+        padding: 18px 14px;
         border-radius: 18px;
-        height: 130px;
+        min-height: 130px;
         background: rgba(110,231,183,0.18);
         border: 1px solid rgba(110,231,183,0.55);
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
-        gap: 8px;
+        gap: 6px;
         cursor: pointer;
         transition: transform .08s ease, background .15s ease;
         box-sizing: border-box;
@@ -57,8 +63,33 @@ C.prototype._render = function () {
       ha-card:active { transform: scale(.99); }
       ha-card.busy { cursor: progress; opacity: .85; }
       .icon { width: 36px; height: 36px; color: #7be7c0; flex-shrink: 0; }
-      .title { font-weight: 700; font-size: 20px; color: var(--primary-text-color, #fff); line-height: 1; }
-      .status { font-size: 13px; min-height: 16px; color: var(--secondary-text-color, rgba(255,255,255,0.75)); text-align: center; padding: 0 8px; }
+      .title { font-weight: 700; font-size: 20px; color: var(--primary-text-color, #fff); line-height: 1.1; text-align: center; }
+      .status {
+        font-size: 13px;
+        min-height: 16px;
+        color: var(--secondary-text-color, rgba(255,255,255,0.75));
+        text-align: center;
+        padding: 0 4px;
+        line-height: 1.3;
+        word-break: break-word;
+      }
+      /* When the card itself is narrow (typically a phone, or a two-card
+         horizontal-stack on a sidebar-split desktop), shrink the title
+         and icon so multi-line status messages like "Printing page 3/7…"
+         don't push the cancel link off the card or collide with the
+         title. Container query fires on the card's own width, not the
+         viewport. */
+      @container (max-width: 260px) {
+        ha-card { padding: 14px 10px; gap: 4px; }
+        .icon { width: 30px; height: 30px; }
+        .title { font-size: 17px; }
+        .status { font-size: 12px; }
+      }
+      @container (max-width: 200px) {
+        .title { font-size: 15px; }
+        .status { font-size: 11px; }
+        .icon { width: 26px; height: 26px; }
+      }
       .status.err { color: #fca5a5; }
       .status.ok  { color: #6ee7b7; }
       .cancel {
@@ -362,7 +393,8 @@ const _LJP_HEALED = new WeakSet();
 
 function _ljpHealOne(err) {
   if (_LJP_HEALED.has(err)) return;
-  let cfg = err.parentElement && err.parentElement._elementConfig;
+  const parent = err.parentElement;
+  let cfg = parent && parent._elementConfig;
   if (!cfg) cfg = err._config || err.config;
   if (!cfg || cfg.type !== 'custom:' + TAG) {
     // Last resort: parse the missing tag from the error message and build
@@ -374,13 +406,24 @@ function _ljpHealOne(err) {
       return;
     }
   }
+  _LJP_HEALED.add(err);
+  // If the parent hui-card already has a real instance of our element
+  // (Lovelace's own whenDefined() callback may have inserted one alongside
+  // the error card), just remove the error card sibling. Otherwise replace
+  // the error card in place with a fresh instance.
+  const existing = parent && parent.querySelector
+    ? parent.querySelector(TAG)
+    : null;
+  if (existing) {
+    err.remove();
+    return;
+  }
   const fresh = document.createElement(TAG);
   try {
     fresh.setConfig(cfg);
   } catch (e) {
     return;
   }
-  _LJP_HEALED.add(err);
   err.replaceWith(fresh);
 }
 
