@@ -348,30 +348,73 @@ if (!window.customCards.find((c) => c.type === TAG)) {
   });
 }
 
-// Self-healing for HA's whenDefined() race. On slow loads (Firefox/mobile),
-// lovelace can render `hui-error-card` "Configuration error" placeholders
-// for our card before this script finishes loading. Once we're running, walk
-// the DOM, find any error cards whose config points at our tag, and swap in
-// a real instance.
+// Self-healing for HA's whenDefined() race. On slow loads (Firefox / mobile /
+// slow networks), lovelace can render `hui-error-card` "Configuration error"
+// placeholders for our card before this script finishes loading. Once we're
+// running, walk the DOM, find any error cards whose config points at our
+// tag, and swap in a real instance.
+//
+// Recent HA changed the hui-error-card config shape: the err's own _config
+// is now {type: 'error', message: 'Custom element doesn\'t exist...'} rather
+// than the user-provided config. The original lives on the parent <hui-card>
+// under _elementConfig. We source from there first and fall back gracefully.
+const _LJP_HEALED = new WeakSet();
+
+function _ljpHealOne(err) {
+  if (_LJP_HEALED.has(err)) return;
+  let cfg = err.parentElement && err.parentElement._elementConfig;
+  if (!cfg) cfg = err._config || err.config;
+  if (!cfg || cfg.type !== 'custom:' + TAG) {
+    // Last resort: parse the missing tag from the error message and build
+    // a default config so the dashboard isn't stuck on "Configuration error".
+    const msg = err._config && err._config.message;
+    if (typeof msg === 'string' && msg.indexOf(TAG) !== -1) {
+      cfg = {type: 'custom:' + TAG};
+    } else {
+      return;
+    }
+  }
+  const fresh = document.createElement(TAG);
+  try {
+    fresh.setConfig(cfg);
+  } catch (e) {
+    return;
+  }
+  _LJP_HEALED.add(err);
+  err.replaceWith(fresh);
+}
+
 function _ljpHeal() {
   const root = document.querySelector('home-assistant');
   if (!root) return;
   const stack = [root];
-  const errors = [];
   while (stack.length) {
     const el = stack.pop();
     if (!el) continue;
-    if (el.tagName === 'HUI-ERROR-CARD') errors.push(el);
+    if (el.tagName === 'HUI-ERROR-CARD') _ljpHealOne(el);
     if (el.shadowRoot) stack.push(el.shadowRoot);
     for (const c of (el.children || [])) stack.push(c);
   }
-  for (const err of errors) {
-    const cfg = err._config || err.config;
-    if (!cfg || cfg.type !== 'custom:' + TAG) continue;
-    const fresh = document.createElement(TAG);
-    fresh.setConfig(cfg);
-    err.replaceWith(fresh);
-  }
 }
-// Retry across several timings — covers fast loads (50ms) and slow phones (2s+).
-[60, 250, 800, 2000, 5000].forEach((ms) => setTimeout(_ljpHeal, ms));
+// Staggered retries across the typical timing window.
+[40, 120, 300, 700, 1500, 3000, 6000, 10_000].forEach(
+  (ms) => setTimeout(_ljpHeal, ms),
+);
+
+// Watch for error cards that appear after the initial retry window —
+// dashboard navigation, lazy view mounts, etc.
+try {
+  const observer = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const n of m.addedNodes) {
+        if (!n || n.nodeType !== 1) continue;
+        if (n.tagName === 'HUI-ERROR-CARD') {
+          _ljpHealOne(n);
+        } else if (n.querySelectorAll) {
+          n.querySelectorAll('hui-error-card').forEach(_ljpHealOne);
+        }
+      }
+    }
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+} catch {}
