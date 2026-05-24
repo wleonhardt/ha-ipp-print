@@ -8,6 +8,14 @@ reasons.
 Ships with a companion Lovelace card so a "Print PDF" tile on your dashboard
 is a single tap.
 
+<p align="center">
+  <img src="assets/card-idle.png" width="320" alt="Idle card" />
+  <img src="assets/card-printing.png" width="320" alt="Printing card" />
+  <br/>
+  <img src="assets/card-complete.png" width="320" alt="Complete card" />
+  <img src="assets/card-failed.png" width="320" alt="Failed card" />
+</p>
+
 ## Why this exists
 
 Home Assistant's built-in `ipp` integration is read-only — it polls a printer
