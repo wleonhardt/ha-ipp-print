@@ -6,7 +6,7 @@
   "dependencies": ["http"],
   "after_dependencies": ["sensor"],
   "iot_class": "local_polling",
-  "codeowners": [],
-  "documentation": "https://github.com/<you>/ha-ipp-print",
-  "issue_tracker": "https://github.com/<you>/ha-ipp-print/issues"
+  "codeowners": ["@wleonhardt"],
+  "documentation": "https://github.com/wleonhardt/ha-ipp-print",
+  "issue_tracker": "https://github.com/wleonhardt/ha-ipp-print/issues"
 }

@@ -48,7 +48,7 @@ Job state flows into `sensor.printer_current_job` (state + filename + pages_done
 ### Via HACS (custom repository)
 
 1. HACS → Integrations → ⋮ → Custom repositories
-2. Add `https://github.com/<you>/ha-ipp-print` as type **Integration**
+2. Add `https://github.com/wleonhardt/ha-ipp-print` as type **Integration**
 3. Install **IPP Print**
 4. Restart Home Assistant
 
