@@ -103,13 +103,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Serve the upload card with a content-hash URL so browsers re-fetch
-    # on every edit. Idempotent across reloads — register_static_paths
-    # over the same path replaces the prior registration.
+    # on every edit. Track which URLs we've already registered so reloads
+    # (options change → async_reload) don't re-call register_static_paths
+    # on the same URL — aiohttp rejects duplicate GET routes with
+    # "Added route will never be executed". Old hash URLs stay registered
+    # as orphans for the rest of the HA process lifetime; that's fine
+    # since content-hash URLs are designed to be cache-invalidation keys.
     card_url = await hass.async_add_executor_job(_card_url_sync)
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(card_url, str(_CARD_FILE), False)]
-    )
-    add_extra_js_url(hass, card_url)
+    registered = hass.data[DOMAIN].setdefault("_card_urls_registered", set())
+    if card_url not in registered:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(card_url, str(_CARD_FILE), False)]
+        )
+        add_extra_js_url(hass, card_url)
+        registered.add(card_url)
     hass.data[DOMAIN][entry.entry_id]["card_url"] = card_url
     hass.async_create_task(_sync_lovelace_resource(hass, card_url))
 
