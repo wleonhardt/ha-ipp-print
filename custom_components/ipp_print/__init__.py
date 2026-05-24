@@ -12,6 +12,8 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CARD_FILENAME,
@@ -38,6 +40,11 @@ PLATFORMS = ["sensor"]
 
 _CARD_FILE = Path(__file__).parent / "static" / CARD_FILENAME
 
+# The integration has no YAML configuration — everything is set up via the
+# config flow — but hassfest still requires a schema declaration when
+# async_setup is defined.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 # Filename sanitiser for incoming uploads.
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -57,7 +64,7 @@ def _card_url() -> str:
     return f"{CARD_URL_PREFIX}{digest}.js"
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
