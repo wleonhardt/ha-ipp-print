@@ -191,14 +191,30 @@ C.prototype._pick = function () {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/pdf,.pdf';
+  // CRITICAL: the input must be attached to the document for the `change`
+  // event to fire reliably across modern browsers. A detached `<input>`
+  // silently swallows the event in current Chrome / Safari builds — the
+  // user sees the file picker, selects a file, the picker closes, and
+  // nothing happens. Insert it hidden, then clean up after pick/cancel.
+  input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;width:0;height:0;';
+  document.body.appendChild(input);
+  const cleanup = () => {
+    try { input.remove(); } catch {}
+  };
   input.addEventListener('change', () => {
     const file = input.files && input.files[0];
+    cleanup();
     if (!file) {
       this._setStatus('Choose a PDF first.', 'err');
       return;
     }
     this._upload(file);
-  });
+  }, { once: true });
+  // Safety net: if the user cancels the picker, modern browsers fire
+  // `cancel` (and no `change`). Clean up so we don't leak inputs.
+  input.addEventListener('cancel', cleanup, { once: true });
+  // Last-resort GC: if neither event fires within 5 minutes, drop the input.
+  setTimeout(cleanup, 5 * 60 * 1000);
   input.click();
 };
 
