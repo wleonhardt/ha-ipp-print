@@ -1,6 +1,9 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Make `custom_components` importable regardless of invocation style
+# (`pytest` console script doesn't put the repo root on sys.path).
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
