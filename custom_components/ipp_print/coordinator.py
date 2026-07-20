@@ -6,12 +6,17 @@ at least one job is non-terminal, then shuts itself off.
 Three observable surfaces:
 * `JobCoordinator.current` is the most-recently-active job, mirrored to
   `sensor.printer_current_job`.
-* `printer_job_state_changed` events fire on every observed state change.
-* `printer_job_completed` events fire once per terminal transition.
+* `ipp_print_job_state_changed` events fire on every observed state change.
+* `ipp_print_job_completed` events fire once per terminal transition.
+
+Jobs whose printer stops answering are given up after MAX_POLL_FAILURES
+consecutive failures and reported as `aborted` with state_reasons
+`printer-unreachable`, so the sensor can never stick on `processing`.
 """
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
@@ -21,6 +26,7 @@ from homeassistant.core import HomeAssistant
 
 from .printer import (
     JobAttributes,
+    JobGoneError,
     PrinterClient,
     TERMINAL_JOB_STATES,
 )
@@ -28,7 +34,13 @@ from .printer import (
 _LOGGER = logging.getLogger(__name__)
 
 POLL_INTERVAL = 1.5  # seconds between Get-Job-Attributes sweeps
+MAX_POLL_INTERVAL = 12.0  # backoff ceiling while the printer is unreachable
 TERMINAL_HOLD_SECONDS = 8.0  # how long to keep a finished job in `current`
+MAX_POLL_FAILURES = 10  # consecutive failed polls before a job is given up
+# A parse-ok-but-attrs-missing response usually means buggy firmware purged
+# the job; require two in a row before treating it as gone so a one-off
+# glitch can't end tracking early.
+GONE_DEBOUNCE = 2
 
 EVENT_JOB_STATE_CHANGED = "ipp_print_job_state_changed"
 EVENT_JOB_COMPLETED = "ipp_print_job_completed"
@@ -48,6 +60,9 @@ class TrackedJob:
     last_seen: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    cancel_requested: bool = False
+    fail_count: int = 0  # consecutive poll failures
+    gone_count: int = 0  # consecutive attrs-missing responses
 
     def is_terminal(self) -> bool:
         return self.finished_at is not None
@@ -119,13 +134,28 @@ class JobCoordinator:
 
     def _ensure_poll_loop(self) -> None:
         if self._poll_task is None or self._poll_task.done():
-            self._poll_task = self._hass.loop.create_task(self._poll_loop())
+            self._poll_task = self._hass.async_create_background_task(
+                self._poll_loop(), name="ipp_print job poll"
+            )
+
+    async def async_shutdown(self) -> None:
+        """Stop polling. Called on entry unload/reload."""
+        task = self._poll_task
+        self._poll_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     async def _poll_loop(self) -> None:
         _LOGGER.debug("poll loop starting; %d job(s) tracked", len(self._jobs))
         try:
             while True:
                 active = [j for j in self._jobs.values() if not j.is_terminal()]
+                # Prune finished jobs so the map doesn't grow forever;
+                # `current` stays readable via its own reference.
+                if len(self._jobs) > len(active):
+                    self._jobs = {j.job_id: j for j in active}
                 if not active:
                     if self._current and self._current.is_terminal():
                         age = (
@@ -140,7 +170,13 @@ class JobCoordinator:
                     break
                 for job in active:
                     await self._poll_one(job)
-                await asyncio.sleep(POLL_INTERVAL)
+                # Back off while every active job is failing to answer, so an
+                # unplugged printer doesn't get hammered every 1.5 s.
+                min_fails = min(j.fail_count for j in active)
+                interval = min(
+                    POLL_INTERVAL * (2 ** min(min_fails, 4)), MAX_POLL_INTERVAL
+                )
+                await asyncio.sleep(interval)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -151,12 +187,35 @@ class JobCoordinator:
     async def _poll_one(self, job: TrackedJob) -> None:
         try:
             attrs = await self._client.get_job_attrs(job.job_id)
+        except JobGoneError:
+            # Printer purged the job. Report what actually happened: a purge
+            # right after a cancel request is a cancel, not a completion.
+            self._mark_terminal(
+                job,
+                "canceled" if job.cancel_requested else "completed",
+                None,
+            )
+            return
         except Exception as exc:
-            _LOGGER.warning("Get-Job-Attributes failed for %s: %s", job.job_id, exc)
+            job.fail_count += 1
+            _LOGGER.warning(
+                "Get-Job-Attributes failed for %s (%d/%d): %s",
+                job.job_id, job.fail_count, MAX_POLL_FAILURES, exc,
+            )
+            if job.fail_count >= MAX_POLL_FAILURES:
+                self._mark_terminal(job, "aborted", "printer-unreachable")
             return
         if attrs is None:
-            self._mark_terminal(job, "completed", None)
+            job.gone_count += 1
+            if job.gone_count >= GONE_DEBOUNCE:
+                self._mark_terminal(
+                    job,
+                    "canceled" if job.cancel_requested else "completed",
+                    None,
+                )
             return
+        job.fail_count = 0
+        job.gone_count = 0
         self._apply_attrs(job, attrs)
 
     def _apply_attrs(self, job: TrackedJob, attrs: JobAttributes) -> None:
@@ -197,7 +256,18 @@ class JobCoordinator:
     def _fire(self, event: str, job: TrackedJob) -> None:
         self._hass.bus.async_fire(event, job.to_dict())
 
+    def knows(self, job_id: int) -> bool:
+        """True if this coordinator submitted/tracks the given job."""
+        return job_id in self._jobs or (
+            self._current is not None and self._current.job_id == job_id
+        )
+
     async def async_cancel(self, job_id: int) -> bool:
+        # Record intent first: if the printer purges the job before our next
+        # poll, _poll_one reports "canceled" instead of "completed".
+        job = self._jobs.get(job_id)
+        if job is not None:
+            job.cancel_requested = True
         try:
             status = await self._client.cancel_job(job_id)
         except Exception as exc:

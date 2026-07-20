@@ -32,7 +32,7 @@ from .const import (
     PDF_MAGIC,
 )
 from .coordinator import JobCoordinator
-from .printer import PrinterClient
+from .printer import IppError, PrinterClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,10 +112,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     card_url = await hass.async_add_executor_job(_card_url_sync)
     registered = hass.data[DOMAIN].setdefault("_card_urls_registered", set())
     if card_url not in registered:
+        # cache_headers=True: the URL embeds a content hash, so the browser
+        # may cache forever — a changed card gets a brand-new URL.
         await hass.http.async_register_static_paths(
-            [StaticPathConfig(card_url, str(_CARD_FILE), False)]
+            [StaticPathConfig(card_url, str(_CARD_FILE), True)]
         )
-        add_extra_js_url(hass, card_url)
         registered.add(card_url)
     hass.data[DOMAIN][entry.entry_id]["card_url"] = card_url
     hass.async_create_task(_sync_lovelace_resource(hass, card_url))
@@ -128,7 +129,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
+        data = hass.data[DOMAIN].pop(entry.entry_id, None)
+        if data:
+            # Stop the poll task and release pooled printer connections so a
+            # reload can't leave the old coordinator polling the old config.
+            await data["coordinator"].async_shutdown()
+            await data["client"].async_close()
     return unloaded
 
 
@@ -136,11 +142,24 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+def _add_extra_js_once(hass: HomeAssistant, card_url: str) -> None:
+    """Fallback card injection for setups without a writable resource store."""
+    added = hass.data[DOMAIN].setdefault("_extra_js_urls", set())
+    if card_url not in added:
+        add_extra_js_url(hass, card_url)
+        added.add(card_url)
+        _LOGGER.info("card injected via extra_js_url: %s", card_url)
+
+
 async def _sync_lovelace_resource(hass: HomeAssistant, card_url: str) -> None:
     """Make the global lovelace resource collection match `card_url`.
 
     Drops any stale entries pointing at older card hashes so the OLD class
     can't register first and beat the new one's customElements.define race.
+
+    In YAML-resource mode (or if the storage collection is unavailable) the
+    collection can't be edited; fall back to add_extra_js_url so the card
+    still loads — on the next full page load.
     """
     import asyncio
     for _ in range(60):
@@ -153,7 +172,16 @@ async def _sync_lovelace_resource(hass: HomeAssistant, card_url: str) -> None:
             break
         await asyncio.sleep(1)
     else:
-        _LOGGER.warning("lovelace resources collection never appeared")
+        _LOGGER.warning(
+            "lovelace resources collection never appeared; "
+            "falling back to extra_js_url"
+        )
+        _add_extra_js_once(hass, card_url)
+        return
+    if not hasattr(coll, "async_create_item"):
+        # YAML-mode dashboards: resources are read-only.
+        _LOGGER.debug("lovelace resources read-only (YAML mode); using extra_js_url")
+        _add_extra_js_once(hass, card_url)
         return
     try:
         items = list(coll.async_items())
@@ -173,11 +201,18 @@ async def _sync_lovelace_resource(hass: HomeAssistant, card_url: str) -> None:
             await coll.async_create_item({"res_type": "module", "url": card_url})
             _LOGGER.info("registered %s in lovelace resources", card_url)
     except Exception:
-        _LOGGER.exception("failed to sync lovelace resources")
+        _LOGGER.exception(
+            "failed to sync lovelace resources; falling back to extra_js_url"
+        )
+        _add_extra_js_once(hass, card_url)
 
 
 def _live_entry(hass: HomeAssistant) -> dict | None:
-    """Return the dict for the most-recently-configured entry, or None."""
+    """Return the configured entry's client/coordinator dict, or None.
+
+    The integration declares single_config_entry, so at most one real entry
+    exists alongside the underscore-prefixed bookkeeping keys.
+    """
     entries = hass.data.get(DOMAIN, {})
     for key, entry_data in entries.items():
         if key.startswith("_"):
@@ -230,7 +265,9 @@ class PrintView(HomeAssistantView):
             if len(buf) > MAX_UPLOAD_BYTES:
                 return self.json_message("too large", status_code=413)
 
-        if buf[:5] != PDF_MAGIC:
+        # The PDF spec allows the %PDF- header anywhere in the first 1024
+        # bytes; scanner-produced files often carry preamble junk.
+        if PDF_MAGIC not in buf[:1024]:
             return self.json_message(
                 "not a PDF (magic bytes mismatch)", status_code=415
             )
@@ -241,17 +278,21 @@ class PrintView(HomeAssistantView):
         client = live["client"]
         coordinator = live["coordinator"]
 
-        body = bytes(buf)
         try:
             result = await client.print_job(
                 job_name=filename,
                 document_format="application/pdf",
-                document=body,
+                document=buf,
             )
+        except IppError as exc:
+            _LOGGER.warning("IPP submission failed: %s", exc)
+            return self.json_message(str(exc), status_code=502)
         except Exception as exc:
             _LOGGER.exception("IPP submission failed")
             return self.json_message(
-                f"IPP submission failed: {exc}", status_code=502
+                f"IPP submission failed: {type(exc).__name__}: "
+                f"{str(exc)[:120]}",
+                status_code=502,
             )
 
         if result.ipp_status not in (0x0000, 0x0001, 0x0002):
@@ -267,13 +308,13 @@ class PrintView(HomeAssistantView):
         coordinator.track(
             job_id=result.job_id,
             filename=filename,
-            bytes_sent=len(body),
+            bytes_sent=len(buf),
         )
         return self.json(
             {
                 "ok": True,
                 "filename": filename,
-                "bytes": len(body),
+                "bytes": len(buf),
                 "job_id": result.job_id,
                 "state": result.job_state_name,
             }
@@ -303,7 +344,12 @@ class CancelView(HomeAssistantView):
         live = _live_entry(self._hass)
         if live is None:
             return self.json_message("integration not configured", status_code=503)
-        ok = await live["coordinator"].async_cancel(job_id)
+        coordinator = live["coordinator"]
+        # Only jobs this integration submitted may be cancelled through HA —
+        # not arbitrary printer-side job ids.
+        if not coordinator.knows(job_id):
+            return self.json_message("unknown job_id", status_code=404)
+        ok = await coordinator.async_cancel(job_id)
         if not ok:
             return self.json_message("printer refused cancel", status_code=502)
         return self.json({"ok": True, "job_id": job_id})

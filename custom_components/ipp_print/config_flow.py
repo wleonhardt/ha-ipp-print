@@ -7,6 +7,11 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, OptionsFlow, ConfigEntry
 from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import (
     CONF_HOST,
@@ -20,7 +25,11 @@ from .const import (
     DEFAULT_USER,
     DOMAIN,
 )
-from .printer import PrinterClient
+from .printer import JobGoneError, PrinterClient
+
+PASSWORD_SELECTOR = TextSelector(
+    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+)
 
 
 class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -47,8 +56,11 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                 # IPP probe: ask for job-id 1 attributes. Most printers will
                 # return "client-error-not-found" but that's still a valid
                 # IPP response — meaning the network/auth/TLS path works.
-                await client.get_job_attrs(1)
-            except Exception as exc:  # network/TLS errors
+                try:
+                    await client.get_job_attrs(1)
+                except JobGoneError:
+                    pass  # valid IPP answer: printer reached, no job 1
+            except Exception as exc:  # network/TLS/auth errors
                 errors["base"] = "cannot_connect"
                 self._last_error = str(exc)
             else:
@@ -60,6 +72,9 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                     title=f"IPP printer at {user_input[CONF_HOST]}",
                     data=user_input,
                 )
+            finally:
+                # The probe client pools its connection; release it.
+                await client.async_close()
 
         schema = vol.Schema(
             {
@@ -67,7 +82,7 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
                 vol.Optional(CONF_USE_TLS, default=True): bool,
                 vol.Optional(CONF_USER, default=DEFAULT_USER): str,
-                vol.Optional(CONF_PASSWORD, default=""): str,
+                vol.Optional(CONF_PASSWORD, default=""): PASSWORD_SELECTOR,
                 vol.Optional(CONF_VERIFY_TLS, default=False): bool,
                 vol.Optional(CONF_RELAXED_CIPHERS, default=False): bool,
             }
@@ -106,7 +121,9 @@ class IppPrintOptionsFlow(OptionsFlow):
                 vol.Optional(CONF_PORT, default=data.get(CONF_PORT, DEFAULT_PORT)): int,
                 vol.Optional(CONF_USE_TLS, default=data.get(CONF_USE_TLS, True)): bool,
                 vol.Optional(CONF_USER, default=data.get(CONF_USER, DEFAULT_USER)): str,
-                vol.Optional(CONF_PASSWORD, default=data.get(CONF_PASSWORD, "")): str,
+                vol.Optional(
+                    CONF_PASSWORD, default=data.get(CONF_PASSWORD, "")
+                ): PASSWORD_SELECTOR,
                 vol.Optional(
                     CONF_VERIFY_TLS, default=data.get(CONF_VERIFY_TLS, False)
                 ): bool,

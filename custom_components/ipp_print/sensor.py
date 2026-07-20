@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -42,7 +42,7 @@ class PrinterJobSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Current job"
     _attr_icon = "mdi:printer-pos"
-    _attr_device_class = "enum"
+    _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = JOB_STATES
     _attr_should_poll = False
 

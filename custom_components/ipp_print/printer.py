@@ -12,13 +12,44 @@ attribute groups — handcrafted bytes are simpler than monkey-patching.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from functools import partial
 import logging
 import ssl
 
 import aiohttp
 
 _LOGGER = logging.getLogger(__name__)
+
+# IPP status: client-error-not-found — the printer no longer knows the job.
+STATUS_NOT_FOUND = 0x0406
+
+# Print-Job needs to cover the whole document upload on slow links/printers;
+# status polls should fail fast.
+PRINT_TIMEOUT = 300.0
+POLL_TIMEOUT = 10.0
+
+
+class IppError(Exception):
+    """Base for printer communication errors."""
+
+
+class IppHttpError(IppError):
+    """Printer answered with a non-200 HTTP status."""
+
+    def __init__(self, status: int) -> None:
+        self.status = status
+        detail = (
+            "authentication failed (check user/password)"
+            if status in (401, 403)
+            else f"HTTP {status}"
+        )
+        super().__init__(f"printer rejected request: {detail}")
+
+
+class JobGoneError(IppError):
+    """Get-Job-Attributes: printer reports the job no longer exists."""
 
 # IPP value tags we read/write. Full list in RFC 8011 §5.5.
 TAG_END_ATTRS = 0x03
@@ -112,13 +143,15 @@ def build_print_job(
     user: str,
     job_name: str,
     document_format: str,
-    document: bytes,
+    document: bytes | bytearray,
 ) -> bytes:
+    # Truncate at a codepoint boundary — a raw byte-slice can split UTF-8.
+    job_name_bytes = job_name.encode()[:255].decode("utf-8", "ignore").encode()
     op_attrs = _operation_group(
         printer_uri=printer_uri,
         user=user,
         extra=(
-            _attr(TAG_NAME_WITHOUT_LANG, b"job-name", job_name.encode()[:255])
+            _attr(TAG_NAME_WITHOUT_LANG, b"job-name", job_name_bytes)
             + _attr(
                 TAG_MIME_MEDIA_TYPE, b"document-format", document_format.encode()
             )
@@ -209,7 +242,16 @@ def parse_print_job_response(data: bytes) -> JobSubmissionResult:
 
 
 def parse_job_attrs_response(data: bytes) -> JobAttributes | None:
+    """Parse a Get-Job-Attributes response.
+
+    Raises JobGoneError when the printer explicitly reports the job as
+    unknown (purged after completion/cancel). Returns None when the response
+    parsed but lacks usable job attributes — callers should treat that as a
+    transient glitch, not a terminal state.
+    """
     status, attrs = parse_response(data)
+    if status == STATUS_NOT_FOUND:
+        raise JobGoneError(f"job not found (ipp_status=0x{status:04x})")
     if status not in (0x0000, 0x0001, 0x0002):
         _LOGGER.debug("Get-Job-Attributes returned IPP status 0x%04x", status)
     job_id = attrs.get("job-id", [None])[0]
@@ -290,6 +332,8 @@ class PrinterClient:
         self._verify_tls = verify_tls
         self._relaxed_ciphers = relaxed_ciphers
         self._timeout = aiohttp.ClientTimeout(total=timeout)
+        self._session: aiohttp.ClientSession | None = None
+        self._session_lock = asyncio.Lock()
         scheme = "https" if use_tls else "http"
         port_suffix = "" if port in (80, 443) else f":{port}"
         self._url = f"{scheme}://{host}{port_suffix}/ipp/print"
@@ -305,48 +349,73 @@ class PrinterClient:
     def printer_uri(self) -> str:
         return self._uri
 
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Lazily create the shared session (keep-alive connections).
+
+        The SSL context does blocking work (cipher setup, CA loading), so it
+        is built in an executor exactly once — never on the event loop.
+        """
+        if self._session is not None and not self._session.closed:
+            return self._session
+        async with self._session_lock:
+            if self._session is not None and not self._session.closed:
+                return self._session
+            if self._use_tls:
+                ctx = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    partial(
+                        _ssl_context,
+                        verify=self._verify_tls,
+                        relaxed_ciphers=self._relaxed_ciphers,
+                    ),
+                )
+                connector = aiohttp.TCPConnector(ssl=ctx)
+            else:
+                connector = aiohttp.TCPConnector()
+            self._session = aiohttp.ClientSession(
+                connector=connector, timeout=self._timeout
+            )
+            return self._session
+
+    async def async_close(self) -> None:
+        """Release the pooled session/connections."""
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
+
     async def _post_ipp(self, body: bytes, *, timeout: float | None = None) -> bytes:
         auth = (
             aiohttp.BasicAuth(self._user, self._password)
             if self._password
             else None
         )
-        if self._use_tls:
-            connector = aiohttp.TCPConnector(
-                ssl=_ssl_context(
-                    verify=self._verify_tls,
-                    relaxed_ciphers=self._relaxed_ciphers,
-                )
-            )
-        else:
-            connector = aiohttp.TCPConnector()
+        session = await self._get_session()
         client_timeout = (
             aiohttp.ClientTimeout(total=timeout) if timeout else self._timeout
         )
-        async with aiohttp.ClientSession(
-            connector=connector, timeout=client_timeout
-        ) as session:
-            async with session.post(
-                self._url,
-                data=body,
-                headers={"Content-Type": "application/ipp"},
-                auth=auth,
-            ) as resp:
-                content = await resp.read()
-                if resp.status != 200:
-                    _LOGGER.warning(
-                        "Printer returned HTTP %s for IPP request: %s",
-                        resp.status,
-                        content[:200],
-                    )
-                return content
+        async with session.post(
+            self._url,
+            data=body,
+            headers={"Content-Type": "application/ipp"},
+            auth=auth,
+            timeout=client_timeout,
+        ) as resp:
+            content = await resp.read()
+            if resp.status != 200:
+                _LOGGER.warning(
+                    "Printer returned HTTP %s for IPP request: %s",
+                    resp.status,
+                    content[:200],
+                )
+                raise IppHttpError(resp.status)
+            return content
 
     async def print_job(
         self,
         *,
         job_name: str,
         document_format: str,
-        document: bytes,
+        document: bytes | bytearray,
     ) -> JobSubmissionResult:
         req = build_print_job(
             printer_uri=self._uri,
@@ -355,19 +424,21 @@ class PrinterClient:
             document_format=document_format,
             document=document,
         )
-        return parse_print_job_response(await self._post_ipp(req))
+        return parse_print_job_response(
+            await self._post_ipp(req, timeout=PRINT_TIMEOUT)
+        )
 
     async def get_job_attrs(self, job_id: int) -> JobAttributes | None:
         req = build_get_job_attrs(
             printer_uri=self._uri, user=self._user, job_id=job_id
         )
         return parse_job_attrs_response(
-            await self._post_ipp(req, timeout=10.0)
+            await self._post_ipp(req, timeout=POLL_TIMEOUT)
         )
 
     async def cancel_job(self, job_id: int) -> int:
         req = build_cancel_job(
             printer_uri=self._uri, user=self._user, job_id=job_id
         )
-        status, _ = parse_response(await self._post_ipp(req, timeout=10.0))
+        status, _ = parse_response(await self._post_ipp(req, timeout=POLL_TIMEOUT))
         return status
