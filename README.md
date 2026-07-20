@@ -136,6 +136,8 @@ Multipart form-data, field name `file`. Returns:
 ### `POST /api/ipp_print/cancel`
 
 JSON body `{"job_id": 42}`. Returns `{"ok": true, "job_id": 42}` on success.
+Only job-ids submitted through this integration can be cancelled (unknown
+ids return 404).
 
 ## Caveats
 
@@ -143,9 +145,13 @@ JSON body `{"job_id": 42}`. Returns `{"ok": true, "job_id": 42}` on success.
   printer with `document-format: application/pdf`. Your printer must understand
   PDF natively (almost all modern printers do; some old/cheap models don't).
 - **Hardcoded 50 MiB upload cap.** Open an issue if you need more.
-- **Single sensor per entry.** Multiple submissions queue at the printer side;
-  the sensor reflects the *most recent* job. Concurrent independent tracking
-  is on the roadmap.
+- **Single printer per install.** The endpoints and sensor are bound to one
+  configured printer (`single_config_entry`). Multiple submissions queue at
+  the printer side; the sensor reflects the *most recent* job.
+- **Unreachable printer.** If the printer stops answering mid-job, the job is
+  given up after ~10 failed polls and reported as `aborted` with
+  `state_reasons: printer-unreachable` — the sensor never sticks on
+  `processing`.
 - **HP LaserJets:** several models (M283fdw, M227, etc.) only offer non-PFS
   TLS ciphers. Enable "Allow legacy cipher suites" in the config flow.
 
@@ -163,6 +169,14 @@ custom_components/ipp_print/
 ├── static/card.js     # the Lovelace card
 ├── strings.json
 └── translations/en.json
+```
+
+Run the checks locally:
+
+```sh
+python3 -m venv .venv && .venv/bin/pip install -r requirements_test.txt
+.venv/bin/pytest tests -q
+.venv/bin/ruff check custom_components tests
 ```
 
 Pull requests welcome.

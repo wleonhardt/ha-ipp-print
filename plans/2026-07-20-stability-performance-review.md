@@ -1,6 +1,7 @@
 # Stability & performance review — 2026-07-20
 
-Status: planned
+Status: done (2026-07-20, v0.2.0, commits eff8ab3..HEAD)
+Deferred: C9 unique_id refresh on host change (cosmetic); B3 full streaming upload; true multi-printer support (behind single_config_entry).
 Scope: full read of `__init__.py`, `printer.py`, `coordinator.py`, `sensor.py`,
 `config_flow.py`, `const.py`, `static/card.js`, manifest/hacs/CI.
 
