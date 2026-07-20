@@ -24,6 +24,8 @@ const C = customElements.get(TAG);
 C.prototype.setConfig = function (config) {
   this._config = Object.assign({ title: 'Print PDF' }, config || {});
   this._render();
+  // _render is one-shot; apply config changes (card editor) directly.
+  if (this._titleEl) this._titleEl.textContent = this._config.title;
 };
 
 // hass is set every state update; keep the latest reference for the token.
@@ -148,20 +150,38 @@ C.prototype._render = function () {
   this._rendered = true;
 };
 
+// Self-healed instances may never receive `hass` from lovelace (the parent
+// hui-card can keep pointing at the replaced error card), so every consumer
+// falls back to the app root's live hass object.
+C.prototype._getHass = function () {
+  return this._hass || document.querySelector('home-assistant')?.hass || null;
+};
+
+// hass.fetchWithAuth refreshes an expired token automatically; a raw fetch
+// with a copied bearer token is the fallback for exotic auth setups.
+C.prototype._authedFetch = function (path, init) {
+  const hass = this._getHass();
+  if (hass?.fetchWithAuth) return hass.fetchWithAuth(path, init);
+  const token =
+    hass?.auth?.data?.access_token ||
+    hass?.connection?.auth?.data?.access_token ||
+    hass?.auth?.accessToken ||
+    null;
+  const headers = Object.assign({}, init?.headers || {});
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(path, Object.assign({}, init, {
+    headers,
+    credentials: 'same-origin',
+  }));
+};
+
 C.prototype._cancelJob = async function () {
   if (this._activeJobId == null) return;
-  const token =
-    this._hass?.auth?.data?.access_token ||
-    this._hass?.connection?.auth?.data?.access_token ||
-    null;
-  const headers = { 'Content-Type': 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
   try {
-    const r = await fetch('/api/ipp_print/cancel', {
+    const r = await this._authedFetch('/api/ipp_print/cancel', {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job_id: this._activeJobId }),
-      credentials: 'same-origin',
     });
     if (!r.ok) {
       const body = await r.text();
@@ -230,22 +250,12 @@ C.prototype._upload = async function (file) {
   const form = new FormData();
   form.append('file', file, file.name);
 
-  const token =
-    this._hass?.auth?.data?.access_token ||
-    this._hass?.connection?.auth?.data?.access_token ||
-    this._hass?.auth?.accessToken ||
-    null;
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
-
   try {
-    // New direct-IPP endpoint. Returns a real printer-assigned job-id we can
-    // track via sensor.printer_current_job. /upload was the legacy
-    // filesystem-queue path and is still wired up but unused.
-    const resp = await fetch('/api/ipp_print/print', {
+    // Returns the printer-assigned job-id we then track via
+    // sensor.printer_current_job.
+    const resp = await this._authedFetch('/api/ipp_print/print', {
       method: 'POST',
       body: form,
-      headers,
-      credentials: 'same-origin',
     });
     let body = null;
     const ct = resp.headers.get('content-type') || '';
@@ -284,7 +294,7 @@ const ACTIVE_STATES = new Set([
 ]);
 
 C.prototype._trackPrintProgress = async function () {
-  const hass = this._hass;
+  const hass = this._getHass();
   if (!hass || !hass.connection) return;
 
   // Cancel any previous subscription so successive uploads don't overlap.
@@ -343,9 +353,13 @@ C.prototype._trackPrintProgress = async function () {
     render(initial.state, initial.attributes);
   }
 
-  this._unsubProgress = await hass.connection.subscribeEvents((ev) => {
-    if (ev?.data?.entity_id !== JOB_SENSOR) return;
-    const newState = ev.data.new_state;
+  // Server-side-filtered subscription: only this sensor's changes reach the
+  // browser (a bare `state_changed` subscription would stream every entity
+  // in the instance to the phone for the duration of the job). Entity-only
+  // state triggers fire on attribute-only changes too, so page progress
+  // (attributes while state stays "processing") still comes through.
+  this._unsubProgress = await hass.connection.subscribeMessage((msg) => {
+    const newState = msg?.variables?.trigger?.to_state;
     if (!newState) return;
     // Only act on changes that belong to our job, or to idle (which means the
     // coordinator cleared after the terminal hold window).
@@ -366,7 +380,10 @@ C.prototype._trackPrintProgress = async function () {
       try { this._unsubProgress(); } catch {}
       this._unsubProgress = null;
     }
-  }, 'state_changed');
+  }, {
+    type: 'subscribe_trigger',
+    trigger: { platform: 'state', entity_id: JOB_SENSOR },
+  });
 
   // Safety net: if no events arrive for 90 seconds, clean up.
   this._progressSafety = setTimeout(() => {
@@ -389,8 +406,8 @@ window.customCards = window.customCards || [];
 if (!window.customCards.find((c) => c.type === TAG)) {
   window.customCards.push({
     type: TAG,
-    name: 'LJ Printer Upload',
-    description: 'Authenticated PDF upload to /media/print_inbox (no ingress, no Media Browser).',
+    name: 'IPP Print Upload',
+    description: 'Upload a PDF straight to an IPP printer with live job progress.',
     preview: false,
   });
 }
@@ -440,6 +457,10 @@ function _ljpHealOne(err) {
   } catch (e) {
     return;
   }
+  // Lovelace won't push `hass` to a node it didn't create — seed it once
+  // here; runtime consumers use _getHass() for a live fallback after this.
+  const ha = document.querySelector('home-assistant');
+  if (ha && ha.hass) fresh.hass = ha.hass;
   err.replaceWith(fresh);
 }
 
@@ -461,7 +482,10 @@ function _ljpHeal() {
 );
 
 // Watch for error cards that appear after the initial retry window —
-// dashboard navigation, lazy view mounts, etc.
+// dashboard navigation, lazy view mounts, etc. Once this script has run,
+// customElements.define has succeeded, so "custom element doesn't exist"
+// error cards can only come from renders already in flight — disconnect
+// after 30s instead of paying the observer cost for the whole session.
 try {
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
@@ -476,4 +500,5 @@ try {
     }
   });
   observer.observe(document.body, {childList: true, subtree: true});
+  setTimeout(() => { try { observer.disconnect(); } catch {} }, 30_000);
 } catch {}
