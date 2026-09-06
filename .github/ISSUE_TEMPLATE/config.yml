@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Scanning (eSCL) questions
+    url: https://github.com/wleonhardt/ha-escl-scan/issues
+    about: The sister project handles scan jobs.

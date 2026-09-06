@@ -275,7 +275,7 @@ Run the checks locally:
 python3 -m venv .venv && .venv/bin/pip install -r requirements_test.txt
 .venv/bin/pytest tests -q
 .venv/bin/ruff check custom_components tests
-node --check custom_components/ipp_print/static/card.js
+npm ci && npm run test:card      # jsdom tests for card.js
 ```
 
 Releases: bump `manifest.json` version, add a `CHANGELOG.md` section, push a

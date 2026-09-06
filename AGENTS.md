@@ -24,7 +24,7 @@ binary protocol (no pyipp), vanilla JS web component (no Lit, no build step).
 
 - `python -m compileall -q custom_components/ipp_print` must pass before done.
 - CI must stay green: hassfest, HACS validation (`.github/workflows/validate.yml`).
-- If a test suite exists (`tests/`), `pytest` must pass before done.
+- `pytest` and `npm run test:card` must pass before done.
 - No new runtime dependencies without a decision record — integration is
   deliberately stdlib+aiohttp only (`manifest.json` has no `requirements`).
 - Never do blocking I/O (file reads, SSL context setup, hashing large files)
@@ -50,7 +50,7 @@ binary protocol (no pyipp), vanilla JS web component (no Lit, no build step).
 
 ```sh
 python -m compileall -q custom_components/ipp_print   # syntax gate (CI parity)
-node --check custom_components/ipp_print/static/card.js  # card syntax gate
+npm ci && npm run test:card                          # card syntax + jsdom tests
 git ls-files | grep -i pyc                            # must be empty
 ```
 

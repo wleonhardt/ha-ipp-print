@@ -37,15 +37,17 @@ jobs:
       - name: Byte-compile sources
         run: python -m compileall -q custom_components/ipp_print
 
-  card-syntax:
-    name: Card syntax
+  card:
+    name: Card tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: node --check custom_components/ipp_print/static/card.js
+          cache: npm
+      - run: npm ci
+      - run: npm run test:card
 
   lint:
     name: Ruff lint

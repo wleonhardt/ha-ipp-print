@@ -1,0 +1,44 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: IPP Print version
+      placeholder: e.g. 0.3.0 (HACS → IPP Print, or manifest.json)
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      placeholder: e.g. 2025.9.1
+    validations:
+      required: true
+  - type: input
+    id: printer
+    attributes:
+      label: Printer make/model and connection
+      placeholder: e.g. HP LaserJet M283fdw, IPPS 443, legacy ciphers on
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Steps, expected vs actual. Card, REST endpoint, or `print_file` action?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Settings → Devices & Services → IPP Print → device → ⋮ → Download diagnostics. Paste or attach (password is redacted).
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: With `custom_components.ipp_print: debug` in `logger:` if possible.
+      render: text

@@ -49,7 +49,7 @@ Scope: full repo + GitHub/HACS state review, then phased execution.
 6. CHANGELOG.md; release workflow (tag → release from CHANGELOG); node --check in CI.
 7. Tag v0.2.0, push, release.
 
-### Phase 2 — v0.3.0 reach — in-progress (R1–R7 R9)
+### Phase 2 — v0.3.0 reach — done (v0.3.0 published 2026-09-06) (R1–R7 R9)
 1. printer.py: Get-Printer-Attributes, configurable path, rangeOfInteger parse, job-attributes group (copies/sides).
 2. config_flow: path field, Get-Printer-Attributes probe, zeroconf step.
 3. manifest: zeroconf.
@@ -59,7 +59,7 @@ Scope: full repo + GitHub/HACS state review, then phased execution.
 7. diagnostics.py.
 8. Tests. Tag v0.3.0, release.
 
-### Phase 3 — hygiene (P4 P6 H2 H4)
+### Phase 3 — hygiene (P4 P6 H2 H4) — in-progress
 1. Issue templates, dependabot, discussions note.
 2. Card tests (node:test + jsdom) in CI.
 3. Extra Python tests (lovelace sync, unload, sensor).

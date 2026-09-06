@@ -1,0 +1,20 @@
+name: Feature request
+description: Something the integration should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that isn't possible or is awkward today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Card option, action field, sensor attribute, event…
+  - type: input
+    id: printer
+    attributes:
+      label: Printer make/model (if relevant)

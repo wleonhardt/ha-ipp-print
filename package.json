@@ -1,0 +1,11 @@
+{
+  "name": "ha-ipp-print-card-tests",
+  "private": true,
+  "description": "Dev-only: jsdom tests for custom_components/ipp_print/static/card.js",
+  "scripts": {
+    "test:card": "node --check custom_components/ipp_print/static/card.js && node --test tests/card/"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0"
+  }
+}
