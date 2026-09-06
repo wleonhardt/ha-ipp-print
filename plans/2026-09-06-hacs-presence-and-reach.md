@@ -40,7 +40,7 @@ Scope: full repo + GitHub/HACS state review, then phased execution.
 
 ## Phases
 
-### Phase 1 — v0.2.0 release (P1 P2 P3 P5 P6-partial B1 B2 B3 B4 B5 B6 R8 H1 H3 H2-partial)
+### Phase 1 — v0.2.0 release — done (v0.2.0 published 2026-09-06) (P1 P2 P3 P5 P6-partial B1 B2 B3 B4 B5 B6 R8 H1 H3 H2-partial)
 1. hacs.json: min HA 2024.12.0, hide_default_branch.
 2. card.js: subscribe_entities, `entity:` option, theme tokens, getStubConfig.
 3. PrintView: configured check before body read.
@@ -49,7 +49,7 @@ Scope: full repo + GitHub/HACS state review, then phased execution.
 6. CHANGELOG.md; release workflow (tag → release from CHANGELOG); node --check in CI.
 7. Tag v0.2.0, push, release.
 
-### Phase 2 — v0.3.0 reach (R1–R7 R9)
+### Phase 2 — v0.3.0 reach — in-progress (R1–R7 R9)
 1. printer.py: Get-Printer-Attributes, configurable path, rangeOfInteger parse, job-attributes group (copies/sides).
 2. config_flow: path field, Get-Printer-Attributes probe, zeroconf step.
 3. manifest: zeroconf.

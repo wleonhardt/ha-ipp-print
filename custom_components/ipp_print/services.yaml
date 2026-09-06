@@ -1,0 +1,31 @@
+print_file:
+  fields:
+    path:
+      required: true
+      example: /config/www/report.pdf
+      selector:
+        text:
+    document_format:
+      example: application/pdf
+      selector:
+        text:
+    job_name:
+      example: report.pdf
+      selector:
+        text:
+    copies:
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 99
+          mode: box
+    sides:
+      example: two-sided-long-edge
+      selector:
+        select:
+          options:
+            - one-sided
+            - two-sided-long-edge
+            - two-sided-short-edge
+          translation_key: sides

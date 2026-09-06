@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.3.0] - 2026-09-06
+
+### Added
+- **`ipp_print.print_file` action.** Print a file from the HA host
+  (`www/`, media dirs, or `allowlist_external_dirs`) from any automation,
+  with optional `copies`, `sides` (duplex), `job_name`, and
+  `document_format`. Returns the job id via `response_variable`.
+- **Zeroconf discovery.** Printers advertising `_ipp._tcp` / `_ipps._tcp`
+  appear under *Discovered*; host, port, path, and TLS come from the
+  advertisement.
+- **JPEG and PNG** accepted alongside PDF (card, endpoint, action). Formats
+  are checked against the printer's `document-format-supported` when known.
+- **Configurable IPP path** (`/ipp/print` default) so CUPS queues
+  (`/printers/<name>`) and non-standard printers work.
+- **Device** per printer with name, make/model, and a link to its web UI,
+  populated from `Get-Printer-Attributes`.
+- **Diagnostics** download (redacted config, printer capabilities, current
+  job).
+
+### Changed
+- Config-flow probe uses `Get-Printer-Attributes` instead of a fake
+  `Get-Job-Attributes`; entry title and unique id now come from the printer
+  (`printer-info` / `printer-uuid`) with host fallback.
+- Card accepts images; theme-aware colors carried over from 0.2.0.
+
 ## [0.2.0] - 2026-09-06
 
 ### Fixed
@@ -89,6 +114,7 @@ semver-ish `0.x`.
 
 Initial release.
 
+[0.3.0]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.1.6...v0.2.0
 [0.1.6]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.1.4...v0.1.5

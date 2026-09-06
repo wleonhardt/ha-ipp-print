@@ -7,6 +7,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -32,8 +33,30 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: JobCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    async_add_entities([PrinterJobSensor(coordinator, entry.entry_id)])
+    data = hass.data[DOMAIN][entry.entry_id]
+    async_add_entities([PrinterJobSensor(entry, data)])
+
+
+def _device_info(entry: ConfigEntry, data: dict) -> DeviceInfo:
+    """One device per configured printer, populated from
+    Get-Printer-Attributes when the probe succeeded."""
+    info = data.get("printer_info")
+    client = data["client"]
+    name = None
+    manufacturer = None
+    model = None
+    if info is not None:
+        name = (info.info or info.name or "").strip() or None
+        model = (info.make_and_model or "").strip() or None
+        if model:
+            manufacturer = model.split(" ", 1)[0]
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry.entry_id)},
+        name=name or entry.title or f"IPP printer at {client.host}",
+        manufacturer=manufacturer,
+        model=model,
+        configuration_url=client.web_url,
+    )
 
 
 class PrinterJobSensor(SensorEntity):
@@ -46,9 +69,10 @@ class PrinterJobSensor(SensorEntity):
     _attr_options = JOB_STATES
     _attr_should_poll = False
 
-    def __init__(self, coordinator: JobCoordinator, entry_id: str) -> None:
-        self._coord = coordinator
-        self._attr_unique_id = f"{entry_id}_current_job"
+    def __init__(self, entry: ConfigEntry, data: dict) -> None:
+        self._coord: JobCoordinator = data["coordinator"]
+        self._attr_unique_id = f"{entry.entry_id}_current_job"
+        self._attr_device_info = _device_info(entry, data)
         # Stable entity_id so the card can find it without renames.
         self.entity_id = "sensor.printer_current_job"
         self._unsub = None

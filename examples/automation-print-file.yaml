@@ -1,0 +1,16 @@
+# Print a file from an automation with the ipp_print.print_file action.
+# The path must be under www/, a media dir, or allowlist_external_dirs.
+alias: Print daily report
+triggers:
+  - trigger: time
+    at: "07:00:00"
+actions:
+  - action: ipp_print.print_file
+    data:
+      path: /config/www/reports/today.pdf
+      copies: 1
+      sides: two-sided-long-edge
+    response_variable: job
+  - action: notify.mobile_app_phone
+    data:
+      message: "Report sent to printer (job {{ job.job_id }})"

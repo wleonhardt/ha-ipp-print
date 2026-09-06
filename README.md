@@ -5,9 +5,10 @@
 [![validate](https://github.com/wleonhardt/ha-ipp-print/actions/workflows/validate.yml/badge.svg)](https://github.com/wleonhardt/ha-ipp-print/actions/workflows/validate.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Print PDFs directly to any IPP-capable network printer from Home Assistant.
-Per-job sensor with live page progress, bus events for automations, and a
-one-tap Lovelace card. No CUPS, no driver layer, no filesystem queue.
+Print PDFs and images directly to any IPP-capable network printer (or CUPS
+queue) from Home Assistant. Zeroconf discovery, a `print_file` action for
+automations, a per-job sensor with live page progress, bus events, and a
+one-tap Lovelace card. No driver layer, no filesystem queue.
 
 > 💡 **Sister project:** for triggering scans on the same multifunction
 > printers, see [**ha-escl-scan**](https://github.com/wleonhardt/ha-escl-scan)
@@ -32,25 +33,30 @@ HA entities, per-job progress, or a clean UI.
 
 `ipp_print` talks IPP directly:
 
+- `Get-Printer-Attributes` once at setup (identity, supported formats, duplex)
 - `Print-Job` to submit
 - `Get-Job-Attributes` to poll progress (every 1.5 s while a job is active)
 - `Cancel-Job` for the cancel button
 
 ## Features
 
-- 🖨️ Direct IPP submission — no CUPS, no Samba, no filesystem queue
+- 🖨️ Direct IPP submission — PDF, JPEG, PNG; any IPP printer or CUPS queue
+- 🔎 Zeroconf discovery — printers show up under *Discovered* automatically
+- 🤖 `ipp_print.print_file` action — print from automations, with copies + duplex
 - 📊 Per-job sensor (`sensor.printer_current_job`) with live page progress
 - 🔔 Bus events for state changes and completion
 - 🛑 Cancel-Job support with a button on the card
 - 🎨 Theme-aware Lovelace card with file picker, status text, and cancel UI
 - 🔒 Authenticated upload endpoint at `/api/ipp_print/print`
-- ⚙️ Config flow — no YAML required
+- ⚙️ Config flow — no YAML required; device page with a link to the printer's web UI
+- 🩺 Diagnostics download for bug reports
 - 🔑 Works with the legacy ciphers some HP LaserJets ship with (opt-in)
 
 ## Requirements
 
 - Home Assistant 2024.12 or newer
-- A network printer that supports IPP/2.0 (most modern printers do)
+- A network printer that supports IPP/2.0 (most modern printers do), or a
+  CUPS server
 - The printer reachable from your HA host on port 80, 443, or 631
 
 ## Installation
@@ -72,20 +78,26 @@ Or: HACS → search **IPP Print** → Download → restart Home Assistant.
 
 [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ipp_print)
 
-Or: **Settings → Devices & Services → Add Integration → IPP Print**
+Printers advertising `_ipp._tcp` / `_ipps._tcp` appear under
+**Settings → Devices & Services → Discovered**; confirm and you're done
+(host, port, path, and TLS are taken from the advertisement).
+
+Manual: **Settings → Devices & Services → Add Integration → IPP Print**
 
 | Field | Notes |
 |---|---|
 | Hostname or IP | e.g. `printer.local` or `192.168.1.50` |
 | Port | `443` for IPPS, `631` for IPP, `80` for HTTP |
+| IPP path | Usually `/ipp/print`. CUPS queues use `/printers/<queue name>` |
 | Use TLS | On for IPPS, off for plain IPP |
 | User | Sent as `requesting-user-name`. Default `anonymous` is fine for most |
 | Password | Only if the printer requires basic auth |
 | Verify TLS | Off for self-signed certs (most consumer printers) |
 | Allow legacy cipher suites | Enable if you see `SSLV3_ALERT_HANDSHAKE_FAILURE` in the logs (some HP LaserJets need this) |
 
-The flow does a quick IPP probe before saving — any IPP response confirms the
-network/auth path works.
+The flow sends `Get-Printer-Attributes` before saving; a valid answer
+confirms the network/auth path and fills in the device name, model, and
+supported document formats.
 
 ## Adding the card to a dashboard
 
@@ -142,6 +154,40 @@ automation:
             ({{ trigger.event.data.state_reasons or 'no reason' }})
 ```
 
+## Action: `ipp_print.print_file`
+
+Print a file that lives on the Home Assistant host. The path must be under
+`www/`, a media directory, or a directory listed in
+`allowlist_external_dirs`.
+
+| Field | Notes |
+|---|---|
+| `path` | Required. Absolute path, e.g. `/config/www/report.pdf` |
+| `document_format` | Optional MIME type. Detected from content (PDF/JPEG/PNG) when omitted. `application/octet-stream` lets the printer auto-sense |
+| `job_name` | Optional. Defaults to the file name |
+| `copies` | Optional, 1–99 |
+| `sides` | Optional: `one-sided`, `two-sided-long-edge`, `two-sided-short-edge` (checked against what the printer advertises) |
+
+Returns `{job_id, filename, bytes, state}` when called with
+`response_variable`.
+
+```yaml
+automation:
+  - alias: Print the scan that just finished
+    triggers:
+      - trigger: event
+        event_type: escl_scan_job_completed
+    actions:
+      - action: ipp_print.print_file
+        data:
+          path: "{{ trigger.event.data.path }}"
+          sides: two-sided-long-edge
+        response_variable: job
+      - action: notify.mobile_app_phone
+        data:
+          message: "Sent to printer as job {{ job.job_id }}"
+```
+
 ## REST API
 
 The integration registers two HA HTTP views (both require a Home Assistant
@@ -149,7 +195,8 @@ auth token; any authenticated user may call them):
 
 ### `POST /api/ipp_print/print`
 
-Multipart form-data, field name `file`. Returns:
+Multipart form-data, field name `file` (PDF, JPEG, or PNG — identified from
+content). Returns:
 
 ```json
 {"ok": true, "filename": "doc.pdf", "bytes": 13264, "job_id": 42, "state": "pending"}
@@ -175,7 +222,13 @@ ids return 404).
 | `authentication failed (check user/password)` | Printer requires HTTP basic auth, or credentials are wrong. |
 | Job shows `aborted` with `printer-unreachable` | Printer stopped answering mid-job (power, Wi-Fi). Tracking gives up after ~10 failed polls. |
 | Card stuck on "Submitted" | Sensor renamed? Set `entity:` on the card. |
-| `printer refused job (ipp_status=0x040a)` | `client-error-document-format-not-supported` — printer does not accept PDF natively. |
+| `printer does not accept image/png (supported: …)` | Checked against the printer's advertised formats. Convert, or pass `document_format: application/octet-stream` via the action if the printer auto-senses. |
+| `printer refused job (ipp_status=0x040a)` | `client-error-document-format-not-supported` — printer does not accept that format natively. |
+| Printer not discovered | It must advertise `_ipp._tcp`/`_ipps._tcp` on the same L2 network as HA. Add it manually otherwise. |
+
+Attach a diagnostics download (device page → ⋮ → Download diagnostics) to
+bug reports; it includes the printer's advertised capabilities with the
+password redacted.
 
 Enable debug logging for the wire-level detail:
 
@@ -187,9 +240,10 @@ logger:
 
 ## Caveats
 
-- **No printer driver layer.** This sends the document bytes straight to the
-  printer with `document-format: application/pdf`. Your printer must understand
-  PDF natively (almost all modern printers do; some old/cheap models don't).
+- **No printer driver layer.** Document bytes go straight to the printer
+  with their MIME type. The printer must understand that format natively
+  (almost all modern printers do PDF and JPEG; PNG varies). Point the
+  integration at a CUPS queue if you need driver-side conversion.
 - **50 MiB upload cap.** Open an issue if you need more.
 - **Single printer per install.** The endpoints and sensor are bound to one
   configured printer (`single_config_entry`). Multiple submissions queue at
@@ -202,12 +256,14 @@ logger:
 ```
 custom_components/ipp_print/
 ├── __init__.py        # entry setup, HTTP views, lovelace resource sync
-├── config_flow.py     # UI flow + options flow
+├── config_flow.py     # user + zeroconf + options flows
 ├── coordinator.py     # background IPP polling
 ├── const.py
+├── diagnostics.py
 ├── manifest.json
 ├── printer.py         # IPP wire format + client
-├── sensor.py          # sensor.printer_current_job
+├── sensor.py          # sensor.printer_current_job + device
+├── services.yaml      # ipp_print.print_file
 ├── static/card.js     # the Lovelace card
 ├── strings.json
 └── translations/en.json

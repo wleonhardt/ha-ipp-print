@@ -131,3 +131,86 @@ def test_parse_truncated_attributes_terminates():
 def test_ipp_http_error_messages():
     assert "authentication" in str(p.IppHttpError(401))
     assert "HTTP 503" in str(p.IppHttpError(503))
+
+
+PRINTER_GROUP = 0x04  # printer-attributes group delimiter
+
+
+def test_build_print_job_job_template_group():
+    req = p.build_print_job(
+        printer_uri="ipp://h/ipp/print", user="u", job_name="a",
+        document_format="application/pdf", document=b"%PDF-x",
+        copies=3, sides="two-sided-long-edge",
+    )
+    # job-attributes group sits between the operation group and end tag.
+    jg = req.index(bytes([p.TAG_JOB_ATTRS]) + p._attr(p.TAG_INTEGER, b"copies", p._int_value(3)))
+    assert jg > 0
+    assert b"sides" in req and b"two-sided-long-edge" in req
+    assert req.index(b"copies") < req.index(bytes([p.TAG_END_ATTRS]) + b"%PDF-x")
+
+
+def test_build_print_job_omits_group_without_options():
+    req = p.build_print_job(
+        printer_uri="ipp://h/ipp/print", user="u", job_name="a",
+        document_format="application/pdf", document=b"", copies=1,
+    )
+    # Operation group runs straight into end-of-attributes: no job group.
+    assert req.endswith(b"application/pdf" + bytes([p.TAG_END_ATTRS]))
+    assert b"copies" not in req
+
+
+def test_build_get_printer_attrs_requested_1setof():
+    req = p.build_get_printer_attrs(printer_uri="ipp://h/ipp/print", user="u")
+    assert int.from_bytes(req[2:4], "big") == p.OP_GET_PRINTER_ATTRS
+    assert req.count(b"requested-attributes") == 1
+    for kw in p.PRINTER_ATTRS_REQUESTED:
+        assert kw in req
+
+
+def test_parse_printer_attrs():
+    grp = (
+        bytes([PRINTER_GROUP])
+        + p._attr(p.TAG_NAME_WITHOUT_LANG, b"printer-name", b"office")
+        + p._attr(0x41, b"printer-info", b"Office MFP")
+        + p._attr(0x41, b"printer-make-and-model", b"Acme LaserJet 1000")
+        + p._attr(p.TAG_URI, b"printer-uuid", b"urn:uuid:abc")
+        + p._attr(p.TAG_MIME_MEDIA_TYPE, b"document-format-supported", b"application/pdf")
+        + p._attr(p.TAG_MIME_MEDIA_TYPE, b"", b"image/jpeg")
+        + p._attr(p.TAG_KEYWORD, b"sides-supported", b"one-sided")
+        + p._attr(p.TAG_KEYWORD, b"", b"two-sided-long-edge")
+        + p._attr(p.TAG_RANGE_OF_INTEGER, b"copies-supported", p._int_value(1) + p._int_value(99))
+        + p._attr(p.TAG_BOOLEAN, b"color-supported", b"\x01")
+    )
+    info = p.parse_printer_attrs_response(_resp(0x0000, grp))
+    assert info.name == "office"
+    assert info.info == "Office MFP"
+    assert info.make_and_model == "Acme LaserJet 1000"
+    assert info.uuid == "urn:uuid:abc"
+    assert info.formats == ["application/pdf", "image/jpeg"]
+    assert info.sides == ["one-sided", "two-sided-long-edge"]
+    assert info.copies_max == 99
+    assert info.supports_format("image/jpeg")
+    assert not info.supports_format("image/png")
+
+
+def test_parse_printer_attrs_error_status_raises():
+    with pytest.raises(p.IppError):
+        p.parse_printer_attrs_response(_resp(0x0400))
+
+
+def test_supports_format_octet_stream_means_anything():
+    info = p.PrinterInfo(
+        name=None, info=None, location=None, make_and_model=None, uuid=None,
+        formats=["application/octet-stream"], sides=[], copies_max=None,
+    )
+    assert info.supports_format("image/png")
+
+
+def test_client_url_uses_path_and_port():
+    c = p.PrinterClient(host="h", port=631, use_tls=False, path="printers/office")
+    assert c.printer_uri == "ipp://h:631/printers/office"
+    assert c._url == "http://h:631/printers/office"
+    assert c.web_url == "http://h:631/"
+    c2 = p.PrinterClient(host="h", port=443, use_tls=True)
+    assert c2.printer_uri == "ipps://h/ipp/print"
+    assert c2.web_url == "https://h/"

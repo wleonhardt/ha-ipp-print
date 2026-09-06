@@ -1,4 +1,4 @@
-// Lovelace card that picks a PDF and POSTs it to /api/ipp_print/print
+// Lovelace card that picks a PDF/JPEG/PNG and POSTs it to /api/ipp_print/print
 // with the user's HA bearer token. No iframe, no Media Browser, no ingress.
 //
 // Type:  custom:ipp-print-upload-card
@@ -16,6 +16,7 @@
 
 const TAG = 'ipp-print-upload-card';
 const DEFAULT_JOB_SENSOR = 'sensor.printer_current_job';
+const ACCEPTED_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
 if (!customElements.get(TAG)) {
   customElements.define(TAG, class extends HTMLElement {});
@@ -215,7 +216,7 @@ C.prototype._pick = function () {
   if (this._busy) return;
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'application/pdf,.pdf';
+  input.accept = 'application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png';
   // CRITICAL: the input must be attached to the document for the `change`
   // event to fire reliably across modern browsers. A detached `<input>`
   // silently swallows the event in current Chrome / Safari builds — the
@@ -230,7 +231,7 @@ C.prototype._pick = function () {
     const file = input.files && input.files[0];
     cleanup();
     if (!file) {
-      this._setStatus('Choose a PDF first.', 'err');
+      this._setStatus('Choose a file first.', 'err');
       return;
     }
     this._upload(file);
@@ -244,8 +245,8 @@ C.prototype._pick = function () {
 };
 
 C.prototype._upload = async function (file) {
-  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
-    this._setStatus('Pick a .pdf file.', 'err');
+  if (!/\.(pdf|jpe?g|png)$/i.test(file.name) && !ACCEPTED_TYPES.has(file.type)) {
+    this._setStatus('Pick a PDF, JPEG, or PNG file.', 'err');
     return;
   }
   this._busy = true;
@@ -427,7 +428,7 @@ if (!window.customCards.find((c) => c.type === TAG)) {
   window.customCards.push({
     type: TAG,
     name: 'IPP Print Upload',
-    description: 'Upload a PDF straight to an IPP printer with live job progress.',
+    description: 'Upload a PDF or image straight to an IPP printer with live job progress.',
     preview: true,
   });
 }

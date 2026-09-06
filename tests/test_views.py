@@ -7,7 +7,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 import custom_components.ipp_print as integration
 from custom_components.ipp_print.const import DOMAIN
 from custom_components.ipp_print.coordinator import JobCoordinator
-from custom_components.ipp_print.printer import IppHttpError, JobSubmissionResult
+from custom_components.ipp_print.printer import (
+    IppHttpError,
+    JobSubmissionResult,
+    PrinterInfo,
+)
 
 PDF = b"%PDF-1.7 fake body"
 OK_RESULT = JobSubmissionResult(
@@ -48,11 +52,11 @@ async def test_print_happy_path(hass, hass_client):
         assert body["filename"] == "doc.pdf"
 
 
-def test_safe_pdf_filename():
+def test_safe_filename():
     # Direct unit tests — aiohttp's test client percent-encodes filenames,
     # so exotic names can't reach the view verbatim from here (browsers send
     # raw UTF-8).
-    f = integration._safe_pdf_filename
+    f = integration._safe_filename
     assert f(None) == "upload.pdf"
     assert f("") == "upload.pdf"
     assert f("my döc!.pdf") == "my-d-c-.pdf"
@@ -61,6 +65,10 @@ def test_safe_pdf_filename():
     assert f("UPPER.PDF") == "UPPER.PDF"
     assert f("a" * 300 + ".pdf").startswith("a")
     assert len(f("a" * 300 + ".pdf")) <= 120
+    assert f("photo.jpeg", "image/jpeg") == "photo.jpeg"
+    assert f("photo", "image/jpeg") == "photo.jpg"
+    assert f("shot", "image/png") == "shot.png"
+    assert f(None, "application/octet-stream") == "upload.bin"
 
 
 async def test_print_missing_file_field(hass, hass_client):
@@ -70,11 +78,57 @@ async def test_print_missing_file_field(hass, hass_client):
     assert resp.status == 400
 
 
-async def test_print_rejects_non_pdf(hass, hass_client):
+async def test_print_rejects_unknown_type(hass, hass_client):
     await _setup(hass)
     client = await hass_client()
     resp = await client.post("/api/ipp_print/print", data=_form(b"GIF89a not a pdf"))
     assert resp.status == 415
+
+
+async def test_print_accepts_png_and_passes_format(hass, hass_client):
+    await _setup(hass)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ) as pj, patch.object(JobCoordinator, "_ensure_poll_loop"):
+        client = await hass_client()
+        resp = await client.post(
+            "/api/ipp_print/print", data=_form(png, filename="shot.png")
+        )
+        assert resp.status == 200
+        assert (await resp.json())["filename"] == "shot.png"
+        assert pj.call_args.kwargs["document_format"] == "image/png"
+
+
+async def test_print_refuses_format_printer_lacks(hass, hass_client, printer_attrs):
+    printer_attrs.return_value = PrinterInfo(
+        name=None, info=None, location=None, make_and_model=None, uuid=None,
+        formats=["application/pdf"], sides=[], copies_max=None,
+    )
+    await _setup(hass)
+    jpeg = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ) as pj:
+        client = await hass_client()
+        resp = await client.post("/api/ipp_print/print", data=_form(jpeg, filename="a.jpg"))
+        assert resp.status == 415
+        assert "does not accept image/jpeg" in (await resp.json())["message"]
+        pj.assert_not_called()
+
+
+async def test_print_allowed_when_printer_autosenses(hass, hass_client, printer_attrs):
+    printer_attrs.return_value = PrinterInfo(
+        name=None, info=None, location=None, make_and_model=None, uuid=None,
+        formats=["application/octet-stream"], sides=[], copies_max=None,
+    )
+    await _setup(hass)
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ), patch.object(JobCoordinator, "_ensure_poll_loop"):
+        client = await hass_client()
+        resp = await client.post("/api/ipp_print/print", data=_form(PDF))
+        assert resp.status == 200
 
 
 async def test_print_accepts_magic_within_first_kib(hass, hass_client):

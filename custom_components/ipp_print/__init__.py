@@ -1,38 +1,55 @@
-"""IPP Print — direct PDF submission to a network printer with per-job state."""
+"""IPP Print — direct document submission to a network printer with per-job state."""
 from __future__ import annotations
 
 import hashlib
 import logging
 from pathlib import Path
 import re
+from typing import Any
 
 from aiohttp import web
+import voluptuous as vol
 
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
+    ATTR_COPIES,
+    ATTR_DOCUMENT_FORMAT,
+    ATTR_JOB_NAME,
+    ATTR_PATH,
+    ATTR_SIDES,
     CARD_FILENAME,
     CARD_URL_PREFIX,
     CONF_HOST,
     CONF_PASSWORD,
+    CONF_PATH,
     CONF_PORT,
     CONF_RELAXED_CIPHERS,
     CONF_USER,
     CONF_USE_TLS,
     CONF_VERIFY_TLS,
+    DEFAULT_PATH,
     DEFAULT_PORT,
     DEFAULT_USER,
     DOMAIN,
+    FORMAT_EXTENSIONS,
     MAX_UPLOAD_BYTES,
-    PDF_MAGIC,
+    SERVICE_PRINT_FILE,
+    sniff_format,
 )
 from .coordinator import JobCoordinator
-from .printer import IppError, PrinterClient
+from .printer import SIDES, IppError, PrinterClient, PrinterInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,14 +65,28 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 # Filename sanitiser for incoming uploads.
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
+PRINT_FILE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PATH): cv.string,
+        vol.Optional(ATTR_DOCUMENT_FORMAT): cv.string,
+        vol.Optional(ATTR_JOB_NAME): cv.string,
+        vol.Optional(ATTR_COPIES): vol.All(vol.Coerce(int), vol.Range(min=1, max=99)),
+        vol.Optional(ATTR_SIDES): vol.In(SIDES),
+    }
+)
 
-def _safe_pdf_filename(filename: str | None) -> str:
+
+def _safe_filename(filename: str | None, fmt: str = "application/pdf") -> str:
+    """Strip path components and unsafe characters; ensure an extension
+    matching the document format."""
+    ext = FORMAT_EXTENSIONS.get(fmt, "")
+    fallback = f"upload{ext or '.bin'}"
     if not filename:
-        return "upload.pdf"
+        return fallback
     name = Path(filename).name
-    name = _UNSAFE.sub("-", name).strip("-._") or "upload.pdf"
-    if not name.lower().endswith(".pdf"):
-        name = f"{name}.pdf"
+    name = _UNSAFE.sub("-", name).strip("-._") or fallback
+    if ext and not name.lower().endswith(tuple({ext, ".jpeg"} if ext == ".jpg" else {ext})):
+        name = f"{name}{ext}"
     return name[:120]
 
 
@@ -67,6 +98,13 @@ def _card_url_sync() -> str:
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_PRINT_FILE,
+        _make_print_file_handler(hass),
+        schema=PRINT_FILE_SCHEMA,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
     return True
 
 
@@ -75,6 +113,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     client = PrinterClient(
         host=data[CONF_HOST],
         port=data.get(CONF_PORT, DEFAULT_PORT),
+        path=data.get(CONF_PATH, DEFAULT_PATH),
         use_tls=data.get(CONF_USE_TLS, True),
         user=data.get(CONF_USER) or DEFAULT_USER,
         password=data.get(CONF_PASSWORD, ""),
@@ -82,10 +121,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         relaxed_ciphers=data.get(CONF_RELAXED_CIPHERS, False),
     )
     coordinator = JobCoordinator(hass, client)
+
+    # Identity + capabilities. A printer that is off right now must not
+    # block setup (endpoints/service still work once it wakes), so failure
+    # here only degrades device info and format checks until next reload.
+    printer_info: PrinterInfo | None = None
+    try:
+        printer_info = await client.get_printer_attrs()
+    except Exception as exc:
+        _LOGGER.warning(
+            "%s: Get-Printer-Attributes failed (%s); device details and "
+            "format checks unavailable until the entry is reloaded",
+            data[CONF_HOST], exc,
+        )
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "client": client,
         "coordinator": coordinator,
+        "printer_info": printer_info,
     }
 
     # Views look up the live coordinator/client from hass.data on every
@@ -222,11 +276,148 @@ def _live_entry(hass: HomeAssistant) -> dict | None:
     return None
 
 
+class SubmitError(Exception):
+    """A submission was refused; carries an HTTP-ish status for the views."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+async def _submit(
+    live: dict,
+    *,
+    filename: str,
+    document: bytes | bytearray,
+    document_format: str,
+    copies: int | None = None,
+    sides: str | None = None,
+) -> dict[str, Any]:
+    """Shared submit path for the HTTP view and the service.
+
+    Checks the format/sides against the printer's advertised capabilities
+    when known, sends Print-Job, and starts tracking the returned job-id.
+    """
+    client: PrinterClient = live["client"]
+    coordinator: JobCoordinator = live["coordinator"]
+
+    info: PrinterInfo | None = live.get("printer_info")
+    if info is None:
+        # Printer was off at setup; try once more now that someone wants it.
+        try:
+            info = live["printer_info"] = await client.get_printer_attrs()
+        except Exception as exc:
+            _LOGGER.debug("Get-Printer-Attributes still failing: %s", exc)
+    if info is not None and info.formats and not info.supports_format(document_format):
+        raise SubmitError(
+            f"printer does not accept {document_format} "
+            f"(supported: {', '.join(info.formats)})",
+            415,
+        )
+    if sides and info is not None and info.sides and sides not in info.sides:
+        raise SubmitError(
+            f"printer does not support sides={sides} "
+            f"(supported: {', '.join(info.sides)})",
+            400,
+        )
+
+    try:
+        result = await client.print_job(
+            job_name=filename,
+            document_format=document_format,
+            document=document,
+            copies=copies,
+            sides=sides,
+        )
+    except IppError as exc:
+        _LOGGER.warning("IPP submission failed: %s", exc)
+        raise SubmitError(str(exc), 502) from exc
+    except Exception as exc:
+        _LOGGER.exception("IPP submission failed")
+        raise SubmitError(
+            f"IPP submission failed: {type(exc).__name__}: {str(exc)[:120]}",
+            502,
+        ) from exc
+
+    if result.ipp_status not in (0x0000, 0x0001, 0x0002):
+        raise SubmitError(
+            f"printer refused job (ipp_status=0x{result.ipp_status:04x})", 502
+        )
+    if result.job_id is None:
+        raise SubmitError("printer did not return a job-id", 502)
+
+    coordinator.track(
+        job_id=result.job_id, filename=filename, bytes_sent=len(document)
+    )
+    return {
+        "ok": True,
+        "filename": filename,
+        "bytes": len(document),
+        "job_id": result.job_id,
+        "state": result.job_state_name,
+    }
+
+
+def _read_file_capped(path: str) -> bytes:
+    """Executor helper: read a file, refusing anything over the upload cap."""
+    p = Path(path)
+    if p.stat().st_size > MAX_UPLOAD_BYTES:
+        raise ValueError(
+            f"{path} exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit"
+        )
+    return p.read_bytes()
+
+
+def _make_print_file_handler(hass: HomeAssistant):
+    async def _handle(call: ServiceCall) -> ServiceResponse:
+        live = _live_entry(hass)
+        if live is None:
+            raise ServiceValidationError("IPP Print is not configured")
+
+        path = call.data[ATTR_PATH]
+        if not await hass.async_add_executor_job(hass.config.is_allowed_path, path):
+            raise ServiceValidationError(
+                f"path is not allowed: {path} — place the file under "
+                "www/ or a media dir, or add its directory to "
+                "allowlist_external_dirs"
+            )
+        try:
+            document = await hass.async_add_executor_job(_read_file_capped, path)
+        except FileNotFoundError as exc:
+            raise ServiceValidationError(f"file not found: {path}") from exc
+        except (OSError, ValueError) as exc:
+            raise ServiceValidationError(f"cannot read {path}: {exc}") from exc
+
+        fmt = call.data.get(ATTR_DOCUMENT_FORMAT) or sniff_format(document)
+        if not fmt:
+            raise ServiceValidationError(
+                f"cannot identify the document type of {path}; pass "
+                f"{ATTR_DOCUMENT_FORMAT} explicitly (e.g. application/octet-stream)"
+            )
+        filename = _safe_filename(call.data.get(ATTR_JOB_NAME) or Path(path).name, fmt)
+
+        try:
+            job = await _submit(
+                live,
+                filename=filename,
+                document=document,
+                document_format=fmt,
+                copies=call.data.get(ATTR_COPIES),
+                sides=call.data.get(ATTR_SIDES),
+            )
+        except SubmitError as exc:
+            raise HomeAssistantError(str(exc)) from exc
+        return job if call.return_response else None
+
+    return _handle
+
+
 class PrintView(HomeAssistantView):
     """POST /api/ipp_print/print
 
-    Multipart/form-data with field 'file' = PDF. Validates magic bytes,
-    submits via IPP Print-Job, returns {ok, filename, bytes, job_id, state}.
+    Multipart/form-data with field 'file' = PDF / JPEG / PNG. Identifies the
+    format from content, submits via IPP Print-Job, returns
+    {ok, filename, bytes, job_id, state}.
     """
 
     url = "/api/ipp_print/print"
@@ -260,8 +451,6 @@ class PrintView(HomeAssistantView):
         if field is None:
             return self.json_message("missing 'file' field", status_code=400)
 
-        filename = _safe_pdf_filename(field.filename)
-
         buf = bytearray()
         while True:
             chunk = await field.read_chunk(64 * 1024)
@@ -271,57 +460,20 @@ class PrintView(HomeAssistantView):
             if len(buf) > MAX_UPLOAD_BYTES:
                 return self.json_message("too large", status_code=413)
 
-        # The PDF spec allows the %PDF- header anywhere in the first 1024
-        # bytes; scanner-produced files often carry preamble junk.
-        if PDF_MAGIC not in buf[:1024]:
+        fmt = sniff_format(buf)
+        if fmt is None:
             return self.json_message(
-                "not a PDF (magic bytes mismatch)", status_code=415
+                "unsupported file type (PDF, JPEG, or PNG)", status_code=415
             )
-
-        client = live["client"]
-        coordinator = live["coordinator"]
+        filename = _safe_filename(field.filename, fmt)
 
         try:
-            result = await client.print_job(
-                job_name=filename,
-                document_format="application/pdf",
-                document=buf,
+            job = await _submit(
+                live, filename=filename, document=buf, document_format=fmt
             )
-        except IppError as exc:
-            _LOGGER.warning("IPP submission failed: %s", exc)
-            return self.json_message(str(exc), status_code=502)
-        except Exception as exc:
-            _LOGGER.exception("IPP submission failed")
-            return self.json_message(
-                f"IPP submission failed: {type(exc).__name__}: "
-                f"{str(exc)[:120]}",
-                status_code=502,
-            )
-
-        if result.ipp_status not in (0x0000, 0x0001, 0x0002):
-            return self.json_message(
-                f"printer refused job (ipp_status=0x{result.ipp_status:04x})",
-                status_code=502,
-            )
-        if result.job_id is None:
-            return self.json_message(
-                "printer did not return a job-id", status_code=502
-            )
-
-        coordinator.track(
-            job_id=result.job_id,
-            filename=filename,
-            bytes_sent=len(buf),
-        )
-        return self.json(
-            {
-                "ok": True,
-                "filename": filename,
-                "bytes": len(buf),
-                "job_id": result.job_id,
-                "state": result.job_state_name,
-            }
-        )
+        except SubmitError as exc:
+            return self.json_message(str(exc), status_code=exc.status)
+        return self.json(job)
 
 
 class CancelView(HomeAssistantView):

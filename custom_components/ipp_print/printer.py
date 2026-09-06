@@ -2,9 +2,10 @@
 
 Self-contained binary-wire-format builder + parser. Only the surface we need
 is implemented:
-    * Print-Job         (0x0002) — submit a document, returns job-id
-    * Get-Job-Attributes (0x0009) — read state/progress of one job
-    * Cancel-Job        (0x0008) — cancel by job-id
+    * Print-Job              (0x0002) — submit a document, returns job-id
+    * Get-Job-Attributes     (0x0009) — read state/progress of one job
+    * Cancel-Job             (0x0008) — cancel by job-id
+    * Get-Printer-Attributes (0x000B) — identity + capabilities probe
 
 We don't depend on `pyipp` because its public API is read-only (printer
 attributes) and Print-Job requires the document body inline after the
@@ -54,9 +55,13 @@ class JobGoneError(IppError):
 # IPP value tags we read/write. Full list in RFC 8011 §5.5.
 TAG_END_ATTRS = 0x03
 TAG_OPERATION_ATTRS = 0x01
+TAG_JOB_ATTRS = 0x02
 TAG_INTEGER = 0x21
+TAG_BOOLEAN = 0x22
 TAG_ENUM = 0x23
+TAG_RANGE_OF_INTEGER = 0x33
 TAG_NAME_WITHOUT_LANG = 0x42
+TAG_KEYWORD = 0x44
 TAG_URI = 0x45
 TAG_CHARSET = 0x47
 TAG_NATURAL_LANGUAGE = 0x48
@@ -66,6 +71,25 @@ TAG_MIME_MEDIA_TYPE = 0x49
 OP_PRINT_JOB = 0x0002
 OP_CANCEL_JOB = 0x0008
 OP_GET_JOB_ATTRS = 0x0009
+OP_GET_PRINTER_ATTRS = 0x000B
+
+DEFAULT_PATH = "/ipp/print"
+
+# Values for the `sides` job-template attribute (RFC 8011 §5.2.8).
+SIDES = ("one-sided", "two-sided-long-edge", "two-sided-short-edge")
+
+# What we ask the printer for in the probe. Kept small: some firmware
+# chokes on large requested-attributes lists.
+PRINTER_ATTRS_REQUESTED = (
+    b"printer-name",
+    b"printer-info",
+    b"printer-location",
+    b"printer-make-and-model",
+    b"printer-uuid",
+    b"document-format-supported",
+    b"sides-supported",
+    b"copies-supported",
+)
 
 # IPP job-state enum values (RFC 8011 §5.3.7).
 JOB_STATE_NAMES = {
@@ -89,6 +113,37 @@ class JobSubmissionResult:
     job_state: int | None
     job_state_name: str | None
     raw: bytes  # full response for diagnostics
+
+
+@dataclass
+class PrinterInfo:
+    """Identity + capabilities from Get-Printer-Attributes."""
+
+    name: str | None
+    info: str | None
+    location: str | None
+    make_and_model: str | None
+    uuid: str | None  # "urn:uuid:..." as the printer reports it
+    formats: list[str]  # document-format-supported
+    sides: list[str]  # sides-supported
+    copies_max: int | None  # upper bound of copies-supported
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "info": self.info,
+            "location": self.location,
+            "make_and_model": self.make_and_model,
+            "uuid": self.uuid,
+            "formats": list(self.formats),
+            "sides": list(self.sides),
+            "copies_max": self.copies_max,
+        }
+
+    def supports_format(self, fmt: str) -> bool:
+        """True if the printer lists `fmt`, or accepts anything
+        (application/octet-stream = printer auto-senses)."""
+        return fmt in self.formats or "application/octet-stream" in self.formats
 
 
 @dataclass
@@ -144,6 +199,8 @@ def build_print_job(
     job_name: str,
     document_format: str,
     document: bytes | bytearray,
+    copies: int | None = None,
+    sides: str | None = None,
 ) -> bytes:
     # Truncate at a codepoint boundary — a raw byte-slice can split UTF-8.
     job_name_bytes = job_name.encode()[:255].decode("utf-8", "ignore").encode()
@@ -157,7 +214,31 @@ def build_print_job(
             )
         ),
     )
-    return _header(OP_PRINT_JOB) + op_attrs + bytes([TAG_END_ATTRS]) + document
+    # Job-template attributes live in their own group (RFC 8011 §4.2.1).
+    job_attrs = b""
+    if copies is not None and copies > 1:
+        job_attrs += _attr(TAG_INTEGER, b"copies", _int_value(copies))
+    if sides:
+        job_attrs += _attr(TAG_KEYWORD, b"sides", sides.encode())
+    if job_attrs:
+        job_attrs = bytes([TAG_JOB_ATTRS]) + job_attrs
+    return (
+        _header(OP_PRINT_JOB) + op_attrs + job_attrs
+        + bytes([TAG_END_ATTRS]) + document
+    )
+
+
+def build_get_printer_attrs(
+    *, printer_uri: str, user: str, requested: tuple[bytes, ...] = PRINTER_ATTRS_REQUESTED
+) -> bytes:
+    # 1setOf keyword: first value carries the name, the rest have an empty
+    # name and inherit it.
+    extra = b"".join(
+        _attr(TAG_KEYWORD, b"requested-attributes" if i == 0 else b"", kw)
+        for i, kw in enumerate(requested)
+    )
+    op_attrs = _operation_group(printer_uri=printer_uri, user=user, extra=extra)
+    return _header(OP_GET_PRINTER_ATTRS) + op_attrs + bytes([TAG_END_ATTRS])
 
 
 def build_get_job_attrs(
@@ -202,8 +283,16 @@ def _parse_attributes(data: bytes, offset: int) -> tuple[dict[str, list], int]:
         raw = data[i : i + value_len]
         i += value_len
 
+        value: int | str | bool | tuple
         if tag in (TAG_INTEGER, TAG_ENUM):
-            value: int | str = int.from_bytes(raw, "big", signed=True)
+            value = int.from_bytes(raw, "big", signed=True)
+        elif tag == TAG_BOOLEAN:
+            value = bool(raw and raw[0])
+        elif tag == TAG_RANGE_OF_INTEGER and len(raw) == 8:
+            value = (
+                int.from_bytes(raw[:4], "big", signed=True),
+                int.from_bytes(raw[4:], "big", signed=True),
+            )
         else:
             value = raw.decode("utf-8", "replace")
 
@@ -271,6 +360,35 @@ def parse_job_attrs_response(data: bytes) -> JobAttributes | None:
     )
 
 
+def parse_printer_attrs_response(data: bytes) -> PrinterInfo:
+    """Parse a Get-Printer-Attributes response. Raises IppError when the
+    printer rejects the operation."""
+    status, attrs = parse_response(data)
+    if status not in (0x0000, 0x0001, 0x0002):
+        raise IppError(f"Get-Printer-Attributes failed (ipp_status=0x{status:04x})")
+    copies = attrs.get("copies-supported") or []
+    copies_max: int | None = None
+    for v in copies:
+        if isinstance(v, tuple):
+            copies_max = v[1]
+        elif isinstance(v, int):
+            copies_max = v
+    return PrinterInfo(
+        name=_first_str(attrs, "printer-name"),
+        info=_first_str(attrs, "printer-info"),
+        location=_first_str(attrs, "printer-location"),
+        make_and_model=_first_str(attrs, "printer-make-and-model"),
+        uuid=_first_str(attrs, "printer-uuid"),
+        formats=_all_str(attrs, "document-format-supported"),
+        sides=_all_str(attrs, "sides-supported"),
+        copies_max=copies_max,
+    )
+
+
+def _all_str(attrs: dict, key: str) -> list[str]:
+    return [v for v in (attrs.get(key) or []) if isinstance(v, str)]
+
+
 def _first_int(attrs: dict, key: str) -> int | None:
     for v in attrs.get(key) or []:
         if isinstance(v, int):
@@ -323,10 +441,12 @@ class PrinterClient:
         password: str = "",
         verify_tls: bool = False,
         relaxed_ciphers: bool = False,
+        path: str = DEFAULT_PATH,
         timeout: float = 60.0,
     ) -> None:
         self._host = host
         self._port = port
+        self._path = "/" + (path or DEFAULT_PATH).strip("/")
         self._use_tls = use_tls
         self._user = user
         self._password = password
@@ -337,10 +457,10 @@ class PrinterClient:
         self._session_lock = asyncio.Lock()
         scheme = "https" if use_tls else "http"
         port_suffix = "" if port in (80, 443) else f":{port}"
-        self._url = f"{scheme}://{host}{port_suffix}/ipp/print"
+        self._url = f"{scheme}://{host}{port_suffix}{self._path}"
         # IPP URIs are always `ipp://` or `ipps://`, never http/https.
         ipp_scheme = "ipps" if use_tls else "ipp"
-        self._uri = f"{ipp_scheme}://{host}{port_suffix}/ipp/print"
+        self._uri = f"{ipp_scheme}://{host}{port_suffix}{self._path}"
 
     @property
     def host(self) -> str:
@@ -349,6 +469,13 @@ class PrinterClient:
     @property
     def printer_uri(self) -> str:
         return self._uri
+
+    @property
+    def web_url(self) -> str:
+        """Best-guess URL of the printer's embedded web UI."""
+        scheme = "https" if self._use_tls else "http"
+        port_suffix = "" if self._port in (80, 443) else f":{self._port}"
+        return f"{scheme}://{self._host}{port_suffix}/"
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Lazily create the shared session (keep-alive connections).
@@ -417,6 +544,8 @@ class PrinterClient:
         job_name: str,
         document_format: str,
         document: bytes | bytearray,
+        copies: int | None = None,
+        sides: str | None = None,
     ) -> JobSubmissionResult:
         req = build_print_job(
             printer_uri=self._uri,
@@ -424,6 +553,8 @@ class PrinterClient:
             job_name=job_name,
             document_format=document_format,
             document=document,
+            copies=copies,
+            sides=sides,
         )
         return parse_print_job_response(
             await self._post_ipp(req, timeout=PRINT_TIMEOUT)
@@ -434,6 +565,12 @@ class PrinterClient:
             printer_uri=self._uri, user=self._user, job_id=job_id
         )
         return parse_job_attrs_response(
+            await self._post_ipp(req, timeout=POLL_TIMEOUT)
+        )
+
+    async def get_printer_attrs(self) -> PrinterInfo:
+        req = build_get_printer_attrs(printer_uri=self._uri, user=self._user)
+        return parse_printer_attrs_response(
             await self._post_ipp(req, timeout=POLL_TIMEOUT)
         )
 

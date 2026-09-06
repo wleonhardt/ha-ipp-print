@@ -7,6 +7,7 @@
         "data": {
           "host": "Hostname or IP",
           "port": "Port",
+          "path": "IPP path",
           "use_tls": "Use TLS",
           "user": "User",
           "password": "Password",
@@ -15,20 +16,27 @@
         },
         "data_description": {
           "port": "443 for IPPS, 631 for IPP, 80 for plain HTTP.",
+          "path": "Usually /ipp/print. CUPS queues use /printers/<queue name>.",
           "use_tls": "On for IPPS/HTTPS printers, off for plain IPP.",
           "user": "Sent as the IPP requesting-user-name. `anonymous` works for most printers.",
           "password": "Only if the printer requires HTTP basic auth.",
           "verify_tls": "Leave off for self-signed certificates (most consumer printers).",
           "relaxed_ciphers": "Enable if the log shows SSLV3_ALERT_HANDSHAKE_FAILURE (some HP LaserJets only offer non-PFS ciphers)."
         }
+      },
+      "zeroconf_confirm": {
+        "title": "Discovered IPP printer",
+        "description": "Add **{name}** at {host} to Home Assistant? Uses anonymous IPP without certificate verification; adjust later under Configure."
       }
     },
     "error": {
-      "cannot_connect": "Could not reach the printer. Check host/port/TLS settings. Detail: {error_detail}"
+      "cannot_connect": "Could not reach the printer. Check host/port/path/TLS settings. Detail: {error_detail}"
     },
     "abort": {
-      "already_configured": "This printer is already configured."
-    }
+      "already_configured": "This printer is already configured.",
+      "already_in_progress": "Setup for this printer is already in progress."
+    },
+    "flow_title": "{name}"
   },
   "options": {
     "step": {
@@ -37,6 +45,7 @@
         "data": {
           "host": "Hostname or IP",
           "port": "Port",
+          "path": "IPP path",
           "use_tls": "Use TLS",
           "user": "User",
           "password": "Password",
@@ -45,11 +54,49 @@
         },
         "data_description": {
           "port": "443 for IPPS, 631 for IPP, 80 for plain HTTP.",
+          "path": "Usually /ipp/print. CUPS queues use /printers/<queue name>.",
           "use_tls": "On for IPPS/HTTPS printers, off for plain IPP.",
           "user": "Sent as the IPP requesting-user-name. `anonymous` works for most printers.",
           "password": "Only if the printer requires HTTP basic auth.",
           "verify_tls": "Leave off for self-signed certificates (most consumer printers).",
           "relaxed_ciphers": "Enable if the log shows SSLV3_ALERT_HANDSHAKE_FAILURE (some HP LaserJets only offer non-PFS ciphers)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "sides": {
+      "options": {
+        "one-sided": "One-sided",
+        "two-sided-long-edge": "Two-sided, long edge (portrait duplex)",
+        "two-sided-short-edge": "Two-sided, short edge (landscape duplex)"
+      }
+    }
+  },
+  "services": {
+    "print_file": {
+      "name": "Print file",
+      "description": "Send a file on the Home Assistant host to the printer. The path must be under www/, a media directory, or allowlist_external_dirs.",
+      "fields": {
+        "path": {
+          "name": "Path",
+          "description": "Absolute path of the file on the Home Assistant host."
+        },
+        "document_format": {
+          "name": "Document format",
+          "description": "MIME type to send. Detected from content (PDF, JPEG, PNG) when omitted; set application/octet-stream to let the printer auto-sense."
+        },
+        "job_name": {
+          "name": "Job name",
+          "description": "Name shown on the printer and in the job sensor. Defaults to the file name."
+        },
+        "copies": {
+          "name": "Copies",
+          "description": "Number of copies (1-99)."
+        },
+        "sides": {
+          "name": "Sides",
+          "description": "Simplex or duplex, if the printer supports it."
         }
       }
     }
