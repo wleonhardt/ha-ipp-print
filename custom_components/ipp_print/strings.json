@@ -16,7 +16,7 @@
         },
         "data_description": {
           "port": "443 for IPPS, 631 for IPP, 80 for plain HTTP.",
-          "path": "Usually /ipp/print. CUPS queues use /printers/<queue name>.",
+          "path": "Usually /ipp/print. CUPS queues use /printers/QUEUE.",
           "use_tls": "On for IPPS/HTTPS printers, off for plain IPP.",
           "user": "Sent as the IPP requesting-user-name. `anonymous` works for most printers.",
           "password": "Only if the printer requires HTTP basic auth.",
@@ -54,7 +54,7 @@
         },
         "data_description": {
           "port": "443 for IPPS, 631 for IPP, 80 for plain HTTP.",
-          "path": "Usually /ipp/print. CUPS queues use /printers/<queue name>.",
+          "path": "Usually /ipp/print. CUPS queues use /printers/QUEUE.",
           "use_tls": "On for IPPS/HTTPS printers, off for plain IPP.",
           "user": "Sent as the IPP requesting-user-name. `anonymous` works for most printers.",
           "password": "Only if the printer requires HTTP basic auth.",
