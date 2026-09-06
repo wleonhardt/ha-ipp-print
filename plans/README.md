@@ -11,6 +11,7 @@ Project knowledge lives here, not in agent memory.
 | `open-questions.md` | Unresolved questions blocking or shaping work |
 | `decisions/` | One file per structural/architectural decision |
 | `2026-07-20-stability-performance-review.md` | Full critical review + phased remediation plan |
+| `2026-09-06-hacs-presence-and-reach.md` | HACS presence, correctness, reach review + phases |
 
 ## Status vocabulary
 

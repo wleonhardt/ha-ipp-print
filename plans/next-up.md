@@ -2,7 +2,7 @@
 
 ## Queue
 
-(empty)
+- Phase 1 (v0.2.0 release), Phase 2 (v0.3.0 reach), Phase 3 (hygiene) of [2026-09-06-hacs-presence-and-reach.md](2026-09-06-hacs-presence-and-reach.md) — in-progress
 
 ## Done
 
