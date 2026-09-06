@@ -1,6 +1,6 @@
 # HACS presence, correctness, reach — 2026-09-06
 
-Status: in-progress
+Status: done (2026-09-06; v0.2.0 + v0.3.0 published)
 Scope: full repo + GitHub/HACS state review, then phased execution.
 
 ## Findings (ranked)
@@ -59,8 +59,15 @@ Scope: full repo + GitHub/HACS state review, then phased execution.
 7. diagnostics.py.
 8. Tests. Tag v0.3.0, release.
 
-### Phase 3 — hygiene (P4 P6 H2 H4) — in-progress
+### Phase 3 — hygiene (P4 P6 H2 H4) — done
 1. Issue templates, dependabot, discussions note.
 2. Card tests (node:test + jsdom) in CI.
 3. Extra Python tests (lovelace sync, unload, sensor).
-4. Brands repo PR (custom_integrations/ipp_print).
+4. Brands repo PR — dropped: home-assistant/brands no longer accepts custom-integration PRs (PR template, 2026-02 Brands Proxy API). In-tree `brand/` covers HA ≥ 2026.3; nothing further possible for older cores.
+
+## Follow-ups (not started)
+- URL source for `print_file` (fetch then print) — SSRF surface; decide allowlist policy first.
+- Card fields for copies/sides.
+- `media` job attribute (paper size).
+- Coexist with core `ipp` device (shared identifiers) — needs core-domain identifier tuple; questionable.
+- hDPI `brand/icon@2x.png` (512px) needs a real 512px source, not an upscale.
