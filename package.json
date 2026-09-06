@@ -6,6 +6,6 @@
     "test:card": "node --check custom_components/ipp_print/static/card.js && node --test tests/card/card.test.mjs"
   },
   "devDependencies": {
-    "jsdom": "^25.0.0"
+    "jsdom": "^30.0.1"
   }
 }
