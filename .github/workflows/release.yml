@@ -1,0 +1,46 @@
+name: release
+
+# Push a `vX.Y.Z` tag → verify manifest version matches → publish a GitHub
+# release whose body is that version's CHANGELOG.md section. HACS picks the
+# release up as the installable version.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify manifest version matches tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest=$(python3 -c "import json; print(json.load(open('custom_components/ipp_print/manifest.json'))['version'])")
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag v$tag does not match manifest.json version $manifest"
+            exit 1
+          fi
+
+      - name: Extract changelog section
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          # Print lines between "## [<tag>]" and the next "## [" heading.
+          awk -v v="$tag" '
+            /^## \[/ { p = index($0, "[" v "]") == 4 }
+            p
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::no CHANGELOG.md section for $tag"
+            exit 1
+          fi
+          cat notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: notes.md

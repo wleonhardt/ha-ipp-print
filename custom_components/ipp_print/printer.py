@@ -293,7 +293,8 @@ def _ssl_context(*, verify: bool, relaxed_ciphers: bool) -> ssl.SSLContext:
     `relaxed_ciphers`: allow legacy (non-PFS) cipher suites. Required for
         printers that don't offer ECDHE — e.g. several HP LaserJets only
         present AES256-GCM-SHA384, which Python's default SECLEVEL=2
-        cipher list rejects. Turn this on if you see SSLV3_ALERT_HANDSHAKE
+        cipher list rejects. SECLEVEL=1 admits those without also
+        admitting the export/NULL-grade suites SECLEVEL=0 allows. Turn this on if you see SSLV3_ALERT_HANDSHAKE
         _FAILURE in the logs.
     """
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -305,7 +306,7 @@ def _ssl_context(*, verify: bool, relaxed_ciphers: bool) -> ssl.SSLContext:
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     if relaxed_ciphers:
-        ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
     return ctx
 
 

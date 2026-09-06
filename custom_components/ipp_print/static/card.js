@@ -3,7 +3,8 @@
 //
 // Type:  custom:ipp-print-upload-card
 // Options:
-//   title:  string, default "Print PDF"
+//   title:   string, default "Print PDF"
+//   entity:  job sensor to follow, default "sensor.printer_current_job"
 //
 // IMPORTANT: customElements.define() is at line ~10 — register the tag as
 // early as possible so HA's lovelace card factory can resolve `custom:` cards
@@ -14,6 +15,7 @@
 // "later" in the same script.
 
 const TAG = 'ipp-print-upload-card';
+const DEFAULT_JOB_SENSOR = 'sensor.printer_current_job';
 
 if (!customElements.get(TAG)) {
   customElements.define(TAG, class extends HTMLElement {});
@@ -21,8 +23,12 @@ if (!customElements.get(TAG)) {
 
 const C = customElements.get(TAG);
 
+C.getStubConfig = function () { return { title: 'Print PDF' }; };
+
 C.prototype.setConfig = function (config) {
-  this._config = Object.assign({ title: 'Print PDF' }, config || {});
+  this._config = Object.assign(
+    { title: 'Print PDF', entity: DEFAULT_JOB_SENSOR }, config || {},
+  );
   this._render();
   // _render is one-shot; apply config changes (card editor) directly.
   if (this._titleEl) this._titleEl.textContent = this._config.title;
@@ -48,28 +54,27 @@ C.prototype._render = function () {
            shrinks each card narrow even on a wide viewport. */
         container-type: inline-size;
       }
+      /* Theme-driven: accent from --primary-color, surfaces/text from the
+         active HA theme, so the card reads correctly on light and dark. */
       ha-card {
         padding: 18px 14px;
-        border-radius: 18px;
         min-height: 130px;
-        background: rgba(110,231,183,0.18);
-        border: 1px solid rgba(110,231,183,0.55);
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
         gap: 6px;
         cursor: pointer;
-        transition: transform .08s ease, background .15s ease;
+        transition: transform .08s ease, box-shadow .15s ease;
         box-sizing: border-box;
       }
-      ha-card:hover { background: rgba(110,231,183,0.26); }
+      ha-card:hover { box-shadow: 0 0 0 2px var(--primary-color); }
       ha-card:active { transform: scale(.99); }
       ha-card.busy { cursor: progress; opacity: .85; }
-      .icon { width: 36px; height: 36px; color: #7be7c0; flex-shrink: 0; }
-      .title { font-weight: 700; font-size: 20px; color: var(--primary-text-color, #fff); line-height: 1.1; text-align: center; }
+      .icon { width: 36px; height: 36px; color: var(--primary-color); flex-shrink: 0; }
+      .title { font-weight: 700; font-size: 20px; color: var(--primary-text-color); line-height: 1.1; text-align: center; }
       .status {
         font-size: 13px;
         min-height: 16px;
-        color: var(--secondary-text-color, rgba(255,255,255,0.75));
+        color: var(--secondary-text-color);
         text-align: center;
         padding: 0 4px;
         line-height: 1.3;
@@ -92,11 +97,11 @@ C.prototype._render = function () {
         .status { font-size: 11px; }
         .icon { width: 26px; height: 26px; }
       }
-      .status.err { color: #fca5a5; }
-      .status.ok  { color: #6ee7b7; }
+      .status.err { color: var(--error-color); }
+      .status.ok  { color: var(--success-color, var(--primary-color)); }
       .cancel {
         font-size: 11px;
-        color: #fca5a5;
+        color: var(--error-color);
         cursor: pointer;
         text-decoration: underline;
         text-underline-offset: 2px;
@@ -104,7 +109,7 @@ C.prototype._render = function () {
         display: none;
       }
       .cancel.show { display: inline; }
-      .cancel:hover { color: #fecaca; }
+      .cancel:hover { opacity: .8; }
     </style>
     <ha-card role="button" tabindex="0">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -251,8 +256,7 @@ C.prototype._upload = async function (file) {
   form.append('file', file, file.name);
 
   try {
-    // Returns the printer-assigned job-id we then track via
-    // sensor.printer_current_job.
+    // Returns the printer-assigned job-id we then track via the job sensor.
     const resp = await this._authedFetch('/api/ipp_print/print', {
       method: 'POST',
       body: form,
@@ -281,11 +285,8 @@ C.prototype._upload = async function (file) {
   }
 };
 
-// Phase 3: subscribe to sensor.printer_current_job directly. The integration's
-// coordinator polls IPP every 1.5s and pushes real per-job state through this
-// sensor's attributes, so we no longer need to infer printing activity from
-// the HP integration's lifetime counters.
-const JOB_SENSOR = 'sensor.printer_current_job';
+// The integration's coordinator polls IPP every 1.5s and pushes per-job
+// state through the job sensor's state + attributes; the card follows it.
 const TERMINAL_STATES = new Set([
   'canceled', 'aborted', 'completed',
 ]);
@@ -347,28 +348,26 @@ C.prototype._trackPrintProgress = async function () {
   // Push the initial render from the current sensor snapshot — the
   // coordinator may have already moved the job into pending before we
   // subscribed.
-  const initial = hass.states[JOB_SENSOR];
+  const sensorId = this._config?.entity || DEFAULT_JOB_SENSOR;
+  const initial = hass.states[sensorId];
+  // Local mirror of the sensor; subscribe_entities sends diffs.
+  const cur = {
+    state: initial?.state ?? null,
+    attributes: Object.assign({}, initial?.attributes || {}),
+  };
   if (initial && initial.attributes?.job_id === ourJobId) {
     sawState = initial.state;
     render(initial.state, initial.attributes);
   }
 
-  // Server-side-filtered subscription: only this sensor's changes reach the
-  // browser (a bare `state_changed` subscription would stream every entity
-  // in the instance to the phone for the duration of the job). Entity-only
-  // state triggers fire on attribute-only changes too, so page progress
-  // (attributes while state stays "processing") still comes through.
-  this._unsubProgress = await hass.connection.subscribeMessage((msg) => {
-    const newState = msg?.variables?.trigger?.to_state;
-    if (!newState) return;
-    // Only act on changes that belong to our job, or to idle (which means the
-    // coordinator cleared after the terminal hold window).
-    const attrs = newState.attributes || {};
-    const sensorJobId = attrs.job_id;
+  const onUpdate = () => {
+    // Only act on changes that belong to our job, or to idle (which means
+    // the coordinator cleared after the terminal hold window).
+    const sensorJobId = cur.attributes.job_id;
     if (sensorJobId != null && sensorJobId !== ourJobId) return;
-    sawState = newState.state;
-    render(newState.state, attrs);
-    if (TERMINAL_STATES.has(newState.state)) {
+    sawState = cur.state;
+    render(cur.state, cur.attributes);
+    if (TERMINAL_STATES.has(cur.state)) {
       // Leave the message up for a bit, then unsubscribe.
       clearTimeout(this._progressSafety);
       this._progressSafety = setTimeout(() => {
@@ -380,10 +379,31 @@ C.prototype._trackPrintProgress = async function () {
       try { this._unsubProgress(); } catch {}
       this._unsubProgress = null;
     }
-  }, {
-    type: 'subscribe_trigger',
-    trigger: { platform: 'state', entity_id: JOB_SENSOR },
-  });
+  };
+
+  // `subscribe_entities` is server-filtered to this one entity and, unlike
+  // `subscribe_trigger`, is not admin-only — so non-admin dashboard users
+  // get progress too. Messages carry compressed diffs:
+  //   a: full add   {id: {s, a}}
+  //   c: change     {id: {'+': {s?, a?(partial)}, '-': {a?: [keys]}}}
+  //   r: removed    [ids]
+  this._unsubProgress = await hass.connection.subscribeMessage((msg) => {
+    const add = msg?.a?.[sensorId];
+    if (add) {
+      cur.state = add.s;
+      cur.attributes = Object.assign({}, add.a || {});
+      onUpdate();
+      return;
+    }
+    const chg = msg?.c?.[sensorId];
+    if (!chg) return;
+    const plus = chg['+'] || {};
+    const minus = chg['-'] || {};
+    if (plus.s !== undefined) cur.state = plus.s;
+    if (plus.a) Object.assign(cur.attributes, plus.a);
+    for (const k of (minus.a || [])) delete cur.attributes[k];
+    onUpdate();
+  }, { type: 'subscribe_entities', entity_ids: [sensorId] });
 
   // Safety net: if no events arrive for 90 seconds, clean up.
   this._progressSafety = setTimeout(() => {
@@ -408,7 +428,7 @@ if (!window.customCards.find((c) => c.type === TAG)) {
     type: TAG,
     name: 'IPP Print Upload',
     description: 'Upload a PDF straight to an IPP printer with live job progress.',
-    preview: false,
+    preview: true,
   });
 }
 

@@ -1,12 +1,13 @@
 # IPP Print for Home Assistant
 
-A Home Assistant custom integration that prints PDFs directly to any IPP-capable
-network printer and surfaces **per-job state** through a sensor — including
-live page progress, completion, cancellation, and the printer's own error
-reasons.
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/default)
+[![Latest release](https://img.shields.io/github/v/release/wleonhardt/ha-ipp-print?sort=semver)](https://github.com/wleonhardt/ha-ipp-print/releases)
+[![validate](https://github.com/wleonhardt/ha-ipp-print/actions/workflows/validate.yml/badge.svg)](https://github.com/wleonhardt/ha-ipp-print/actions/workflows/validate.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Ships with a companion Lovelace card so a "Print PDF" tile on your dashboard
-is a single tap.
+Print PDFs directly to any IPP-capable network printer from Home Assistant.
+Per-job sensor with live page progress, bus events for automations, and a
+one-tap Lovelace card. No CUPS, no driver layer, no filesystem queue.
 
 > 💡 **Sister project:** for triggering scans on the same multifunction
 > printers, see [**ha-escl-scan**](https://github.com/wleonhardt/ha-escl-scan)
@@ -35,35 +36,32 @@ HA entities, per-job progress, or a clean UI.
 - `Get-Job-Attributes` to poll progress (every 1.5 s while a job is active)
 - `Cancel-Job` for the cancel button
 
-Job state flows into `sensor.printer_current_job` (state + filename + pages_done
-+ pages_total + state_reasons + timestamps), and `ipp_print_job_state_changed` /
-`ipp_print_job_completed` events fire on the bus so you can wire up automations.
-
 ## Features
 
 - 🖨️ Direct IPP submission — no CUPS, no Samba, no filesystem queue
 - 📊 Per-job sensor (`sensor.printer_current_job`) with live page progress
 - 🔔 Bus events for state changes and completion
 - 🛑 Cancel-Job support with a button on the card
-- 🎨 Lovelace card with file picker, status text, and cancel UI
-- 🔒 Bearer-token authenticated upload endpoint at `/api/ipp_print/print`
+- 🎨 Theme-aware Lovelace card with file picker, status text, and cancel UI
+- 🔒 Authenticated upload endpoint at `/api/ipp_print/print`
 - ⚙️ Config flow — no YAML required
 - 🔑 Works with the legacy ciphers some HP LaserJets ship with (opt-in)
 
 ## Requirements
 
-- Home Assistant 2024.8 or newer
+- Home Assistant 2024.12 or newer
 - A network printer that supports IPP/2.0 (most modern printers do)
 - The printer reachable from your HA host on port 80, 443, or 631
 
 ## Installation
 
-### Via HACS (custom repository)
+### HACS (recommended)
 
-1. HACS → Integrations → ⋮ → Custom repositories
-2. Add `https://github.com/wleonhardt/ha-ipp-print` as type **Integration**
-3. Install **IPP Print**
-4. Restart Home Assistant
+IPP Print is in the HACS default store.
+
+[![Open your Home Assistant instance and open this repository inside HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=wleonhardt&repository=ha-ipp-print&category=integration)
+
+Or: HACS → search **IPP Print** → Download → restart Home Assistant.
 
 ### Manual
 
@@ -72,11 +70,9 @@ Job state flows into `sensor.printer_current_job` (state + filename + pages_done
 
 ## Setup
 
-After install, add the integration:
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ipp_print)
 
-**Settings → Devices & Services → Add Integration → IPP Print**
-
-Fill in:
+Or: **Settings → Devices & Services → Add Integration → IPP Print**
 
 | Field | Notes |
 |---|---|
@@ -94,11 +90,15 @@ network/auth path works.
 ## Adding the card to a dashboard
 
 The integration registers the card globally — no `resources:` block needed.
+It also appears in the card picker as **IPP Print Upload**.
 
 ```yaml
 type: custom:ipp-print-upload-card
-title: Print PDF        # optional, defaults to "Print PDF"
+title: Print PDF                       # optional, defaults to "Print PDF"
+entity: sensor.printer_current_job     # optional, only if you renamed the sensor
 ```
+
+The card follows your active HA theme (`--primary-color` accent).
 
 ## Sensor + events
 
@@ -121,9 +121,31 @@ Bus events you can trigger automations from:
 
 Both carry the full job dict as `event.data`.
 
+### Automation example
+
+Notify when a job fails:
+
+```yaml
+automation:
+  - alias: Print job failed
+    triggers:
+      - trigger: event
+        event_type: ipp_print_job_completed
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.event.data.state in ['aborted', 'canceled'] }}"
+    actions:
+      - action: notify.mobile_app_phone
+        data:
+          message: >
+            Print {{ trigger.event.data.filename }} {{ trigger.event.data.state }}
+            ({{ trigger.event.data.state_reasons or 'no reason' }})
+```
+
 ## REST API
 
-The integration registers two HA HTTP views (both `requires_auth = true`):
+The integration registers two HA HTTP views (both require a Home Assistant
+auth token; any authenticated user may call them):
 
 ### `POST /api/ipp_print/print`
 
@@ -133,25 +155,45 @@ Multipart form-data, field name `file`. Returns:
 {"ok": true, "filename": "doc.pdf", "bytes": 13264, "job_id": 42, "state": "pending"}
 ```
 
+Example with a long-lived access token:
+
+```bash
+curl -H "Authorization: Bearer $HA_TOKEN" -F file=@doc.pdf http://homeassistant.local:8123/api/ipp_print/print
+```
+
 ### `POST /api/ipp_print/cancel`
 
 JSON body `{"job_id": 42}`. Returns `{"ok": true, "job_id": 42}` on success.
 Only job-ids submitted through this integration can be cancelled (unknown
 ids return 404).
 
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `SSLV3_ALERT_HANDSHAKE_FAILURE` in the log | Printer only offers non-PFS ciphers. Enable **Allow legacy cipher suites**. |
+| `authentication failed (check user/password)` | Printer requires HTTP basic auth, or credentials are wrong. |
+| Job shows `aborted` with `printer-unreachable` | Printer stopped answering mid-job (power, Wi-Fi). Tracking gives up after ~10 failed polls. |
+| Card stuck on "Submitted" | Sensor renamed? Set `entity:` on the card. |
+| `printer refused job (ipp_status=0x040a)` | `client-error-document-format-not-supported` — printer does not accept PDF natively. |
+
+Enable debug logging for the wire-level detail:
+
+```yaml
+logger:
+  logs:
+    custom_components.ipp_print: debug
+```
+
 ## Caveats
 
 - **No printer driver layer.** This sends the document bytes straight to the
   printer with `document-format: application/pdf`. Your printer must understand
   PDF natively (almost all modern printers do; some old/cheap models don't).
-- **Hardcoded 50 MiB upload cap.** Open an issue if you need more.
+- **50 MiB upload cap.** Open an issue if you need more.
 - **Single printer per install.** The endpoints and sensor are bound to one
   configured printer (`single_config_entry`). Multiple submissions queue at
   the printer side; the sensor reflects the *most recent* job.
-- **Unreachable printer.** If the printer stops answering mid-job, the job is
-  given up after ~10 failed polls and reported as `aborted` with
-  `state_reasons: printer-unreachable` — the sensor never sticks on
-  `processing`.
 - **HP LaserJets:** several models (M283fdw, M227, etc.) only offer non-PFS
   TLS ciphers. Enable "Allow legacy cipher suites" in the config flow.
 
@@ -177,7 +219,12 @@ Run the checks locally:
 python3 -m venv .venv && .venv/bin/pip install -r requirements_test.txt
 .venv/bin/pytest tests -q
 .venv/bin/ruff check custom_components tests
+node --check custom_components/ipp_print/static/card.js
 ```
+
+Releases: bump `manifest.json` version, add a `CHANGELOG.md` section, push a
+`vX.Y.Z` tag. The release workflow verifies the version matches and publishes
+the GitHub release from the changelog section.
 
 Pull requests welcome.
 

@@ -237,6 +237,12 @@ class PrintView(HomeAssistantView):
         self._hass = hass
 
     async def post(self, request: web.Request) -> web.Response:
+        # Refuse before touching the body so an unconfigured install doesn't
+        # buffer a 50 MiB upload just to answer 503.
+        live = _live_entry(self._hass)
+        if live is None:
+            return self.json_message("integration not configured", status_code=503)
+
         try:
             reader = await request.multipart()
         except Exception as exc:
@@ -272,9 +278,6 @@ class PrintView(HomeAssistantView):
                 "not a PDF (magic bytes mismatch)", status_code=415
             )
 
-        live = _live_entry(self._hass)
-        if live is None:
-            return self.json_message("integration not configured", status_code=503)
         client = live["client"]
         coordinator = live["coordinator"]
 

@@ -144,3 +144,17 @@ async def test_cancel_tracked_job(hass, hass_client):
         resp = await client.post("/api/ipp_print/cancel", json={"job_id": 7})
         assert resp.status == 200
         assert (await resp.json())["ok"] is True
+
+
+async def test_print_unconfigured_refuses_before_reading_body(hass, hass_client):
+    entry = await _setup(hass)
+    client = await hass_client()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    # A body that would otherwise be a 400 (not multipart) must still get
+    # 503: the configured check runs before any of the body is consumed.
+    resp = await client.post(
+        "/api/ipp_print/print", data=b"not multipart",
+        headers={"Content-Type": "text/plain"},
+    )
+    assert resp.status == 503

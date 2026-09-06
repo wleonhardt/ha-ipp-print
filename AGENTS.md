@@ -32,7 +32,9 @@ binary protocol (no pyipp), vanilla JS web component (no Lit, no build step).
 - card.js has no build step; keep it framework-free ES2020. `customElements.define`
   must stay at top of file (HA race — see comment there).
 - Check `plans/decisions/` before proposing structural changes.
-- Bump `manifest.json` version on user-visible changes (semver-ish 0.x).
+- Bump `manifest.json` version on user-visible changes (semver-ish 0.x) and
+  add a matching `CHANGELOG.md` section; the release workflow refuses tags
+  without one.
 - Commit after each meaningful change.
 
 ## Before-done checklist
@@ -40,7 +42,8 @@ binary protocol (no pyipp), vanilla JS web component (no Lit, no build step).
 - [ ] compileall passes
 - [ ] tests pass (if present)
 - [ ] version bumped when behavior changed
-- [ ] README/info.md updated when config/entities/endpoints changed
+- [ ] README updated when config/entities/endpoints changed
+- [ ] CHANGELOG.md section added when version bumped
 - [ ] no `__pycache__`/artifacts staged
 
 ## Key commands
