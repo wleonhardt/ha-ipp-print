@@ -2,17 +2,19 @@
 
 ## Queue
 
-- Confirm the final HA duplex retry physically, then publish v0.4.1.
-  [Live validation](2026-10-08-v041-live-validation.md).
+(empty)
 
 ## Done
 
-- 2026-10-08 — Thorough code review; v0.4.1 fixes prepared locally.
+- 2026-10-08 — Thorough code review and v0.4.1 live validation complete.
   [Findings, repairs, verification, and remaining design choices](2026-10-08-code-review.md).
-  134 Python tests / 21 card tests and all six hosted validation jobs pass. Live service/card
+  135 Python tests / 21 card tests pass; all six hosted validation jobs passed
+  the initial duplex fix, with final refresh validation required before tagging. Live service/card
   jobs completed; cancel and seven rejection checks passed on HP M283fdw / HA
   2026.9.4. Duplex failure repaired; controlled retry confirmed front/back on one
-  sheet. Patched HA service job 363 completed; final physical confirmation pending; not tagged or published.
+  sheet. Patched HA service job 363 also confirmed on one sheet. Paper size is
+  pulled fresh from the printer for each explicit sides job, without user input.
+  [Live validation](2026-10-08-v041-live-validation.md).
 
 - 2026-10-08 — v0.4.0: multiple printers (#7). `single_config_entry` dropped; service
   `target:`, `entity_id` on both endpoints, card discovers/sends its sensor; sensor entity_id

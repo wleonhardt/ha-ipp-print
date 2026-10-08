@@ -1,8 +1,8 @@
 # Code review — 2026-10-08
 
 Status: fixes prepared as v0.4.1; automated and live-printer validation performed.
-Live duplex testing found an additional bug, repaired in `cc9a182`; the patched HA service also completed successfully. Final physical confirmation
-and release pending. Baseline: `89adcc5` (v0.4.0).
+Live duplex testing found an additional bug, repaired in `cc9a182`; the patched
+HA service also completed successfully with user-confirmed one-sheet output. Verification complete for v0.4.1. Baseline: `89adcc5` (v0.4.0).
 See [live validation](2026-10-08-v041-live-validation.md).
 
 Reviewed every integration module, the card, tests, manifest, service schema,
@@ -32,7 +32,7 @@ core behavior; P2 means an edge case, reliability problem, or resource cost.
 | P2 | `static/card.js:_trackPrintProgress` | A newer submission replaced the sensor while the old card continued to claim it was printing. Explain that another job is being tracked, hide stale cancel UI, and bound the wait for the original job to reappear. |
 | P2 | `coordinator.py:_fire` | Events from different printers with identical printer-local job IDs were indistinguishable. Include `config_entry_id` on state and terminal events. |
 | P2 | `coordinator.py:_apply_attrs` | Sheet counts were divided by impression totals, under-reporting duplex progress; boolean fallback discarded valid zero counts. Prefer impressions when present, preserve zero, and fall back to sheets. Remove unused `last_seen` state. |
-| P1 | `printer.py:build_print_job`, `__init__.py:_submit` | Live HP test advertised duplex but silently printed simplex without explicit paper size. Send `media-default` with sides and require attribute fidelity for explicit print settings; rejected settings do not start tracking. |
+| P1 | `printer.py:build_print_job`, `__init__.py:_submit` | Live HP test advertised duplex but silently printed simplex without explicit paper size. Refresh and send current `media-default` with sides and require attribute fidelity for explicit print settings; rejected settings do not start tracking. |
 | P2 | `printer.py:build_print_job`, `__init__.py:_submit` | Explicit `copies: 1` was omitted, allowing printer defaults to print multiple copies. Send every explicit count, honor the advertised maximum, and retain the maximum across advertised ranges. Keep every job-state reason rather than only the first. |
 | P2 | `__init__.py:PrintView.post` | Repeated file fields were concatenated and assigned the last filename. Entity fields were unbounded, and multipart read errors escaped as server errors. Accept exactly one file and at most one bounded entity field; reject duplicate/unexpected fields and return 400 for malformed bodies. |
 | P2 | `__init__.py:CancelView.post` | Python treats JSON booleans as integers; invalid/oversized IDs could reach integer encoding. Require an actual integer in the positive signed 32-bit range. |
@@ -112,7 +112,7 @@ No framework, protocol library, or new runtime dependency was introduced.
 ## Verification
 
 - Baseline: 72 Python tests and 11 card tests passed.
-- Final: 134 Python tests and 21 card tests passed (126 / 21 before the live duplex repair).
+- Final: 135 Python tests and 21 card tests passed (126 / 21 before the live duplex repair).
 - Python compileall, Ruff, and git diff whitespace checks passed.
 - Clean npm install plus card syntax/jsdom tests passed; npm audit: zero vulnerabilities.
 - Local HTTP tests verify exact IPP payload bytes, Content-Length without
@@ -131,4 +131,5 @@ No framework, protocol library, or new runtime dependency was introduced.
   passed. Entry reload retained one current card resource and an idle sensor.
 - Physical duplex failure reproduced and repaired: explicit default media plus
   attribute fidelity produced one sheet, front and back (user-confirmed job 362).
-  Patched production service job 363 completed; final physical confirmation pending; no v0.4.1 tag published.
+  Patched production service job 363 also completed on one sheet. Paper settings
+  refresh before each explicit sides job; failure does not submit stale settings.

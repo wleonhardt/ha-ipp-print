@@ -192,9 +192,11 @@ Returns `{job_id, filename, bytes, state}` when called with
 Explicit copies/sides require IPP attribute fidelity: the printer must accept
 the requested settings or reject the job, rather than silently substituting
 its defaults. When `sides` is set, the integration also sends the printer's
-advertised default paper size. This fixes HP firmware that ignores duplex
-when paper size is implicit. Load matching paper and reload the integration
-after changing the printer's default paper size.
+advertised default paper size, queried again for each print with explicit
+sides. No paper-size field is required. This fixes HP firmware that ignores
+duplex when paper size is implicit and picks up changed printer defaults
+automatically. Load paper matching the printer's configured size. If the
+current settings cannot be read, the action fails before submitting a job.
 
 ```yaml
 automation:

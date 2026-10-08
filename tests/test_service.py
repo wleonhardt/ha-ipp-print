@@ -1,4 +1,5 @@
 """ipp_print.print_file service tests."""
+from copy import deepcopy
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -54,10 +55,12 @@ async def test_print_file_submits_and_returns_job(hass, www):
 
 
 @pytest.mark.parametrize("default_media", [None, "iso_a4_210x297mm"])
-async def test_duplex_uses_advertised_default_media(hass, www, default_media):
+async def test_duplex_uses_advertised_default_media(hass, www, default_media, printer_attrs):
     entry = await _setup(hass)
     live = hass.data[DOMAIN][entry.entry_id]
-    live["printer_info"].media_default = default_media
+    refreshed = deepcopy(live["printer_info"])
+    refreshed.media_default = default_media
+    printer_attrs.return_value = refreshed
     with patch.object(
         integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
     ) as pj, patch.object(JobCoordinator, "_ensure_poll_loop"):
@@ -66,9 +69,23 @@ async def test_duplex_uses_advertised_default_media(hass, www, default_media):
             blocking=True,
         )
     assert pj.call_args.kwargs["media"] == default_media
+    assert live["printer_info"] is refreshed
+    assert printer_attrs.await_count == 2  # setup plus current paper settings
 
 
-async def test_default_submission_does_not_override_media(hass, www):
+async def test_duplex_probe_failure_does_not_submit_stale_media(hass, www, printer_attrs):
+    await _setup(hass)
+    printer_attrs.side_effect = integration.IppError("printer offline")
+    with patch.object(integration.PrinterClient, "print_job", new=AsyncMock()) as pj:
+        with pytest.raises(HomeAssistantError, match="No print job was submitted"):
+            await hass.services.async_call(
+                DOMAIN, "print_file", {"path": str(www), "sides": "two-sided-long-edge"},
+                blocking=True,
+            )
+    pj.assert_not_called()
+
+
+async def test_default_submission_does_not_override_media(hass, www, printer_attrs):
     await _setup(hass)
     with patch.object(
         integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
@@ -77,6 +94,7 @@ async def test_default_submission_does_not_override_media(hass, www):
             DOMAIN, "print_file", {"path": str(www)}, blocking=True,
         )
     assert pj.call_args.kwargs["media"] is None
+    assert printer_attrs.await_count == 1
 
 
 async def test_rejected_settings_do_not_start_tracking(hass, www):

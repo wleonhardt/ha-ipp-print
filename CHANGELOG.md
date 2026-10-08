@@ -17,7 +17,8 @@ semver-ish `0.x`.
 - Match impression progress to impression totals, preserving zero counts.
 - Send an explicit `copies: 1` rather than inheriting the printer's default,
   and reject copy counts above the advertised maximum.
-- Send the advertised default paper size with explicit sides settings,
+- Read the printer's current default paper size for each print with explicit
+  sides and send it automatically, without requiring user input,
   fixing HP duplex jobs that otherwise print on separate sheets. Require
   IPP attribute fidelity for explicit print settings so unsupported settings
   are rejected instead of silently substituted.

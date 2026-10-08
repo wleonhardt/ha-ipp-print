@@ -364,12 +364,18 @@ async def _submit(
     coordinator: JobCoordinator = live["coordinator"]
 
     info: PrinterInfo | None = live.get("printer_info")
-    if info is None:
-        # Printer was off at setup; try once more now that someone wants it.
+    if info is None or sides:
+        # Sides needs current default media: paper settings may have changed
+        # since setup. Otherwise only retry a missing capability probe.
         try:
             info = live["printer_info"] = await client.get_printer_attrs()
         except Exception as exc:
             _LOGGER.debug("Get-Printer-Attributes still failing: %s", exc)
+            if sides:
+                raise SubmitError(
+                    "cannot read the printer's current paper settings; "
+                    "check its connection. No print job was submitted", 502,
+                ) from exc
     if info is not None and info.formats and not info.supports_format(document_format):
         raise SubmitError(
             f"printer does not accept {document_format} "

@@ -1,11 +1,13 @@
 # v0.4.1 live validation — 2026-10-08
 
-Status: automated and printer-reported checks passed; final physical confirmation pending.
-Initial code under test: `c6f97d9`; duplex fix: `cc9a182`. No v0.4.1 tag published yet.
+Status: verification complete for v0.4.1, including user-confirmed physical duplex.
+Initial code under test: `c6f97d9`; duplex fix: `cc9a182`. Paper settings are
+refreshed before each explicit sides job; no user-supplied size required.
 
 ## Automated gates
 
-- 134 Python tests and 21 card tests passed after the duplex fix (126 / 21 initially) on the release candidate.
+- 135 Python tests and 21 card tests passed on the final release candidate
+  (126 / 21 initially; 134 / 21 after the first duplex fix).
 - compileall, Ruff, npm clean install, card syntax checks passed.
 - npm audit reported zero vulnerabilities; no generated files staged.
 - [Hosted validation](https://github.com/wleonhardt/ha-ipp-print/actions/runs/37802319364)
@@ -36,18 +38,20 @@ Initial code under test: `c6f97d9`; duplex fix: `cc9a182`. No v0.4.1 tag publish
 | 360 | Production card upload, one-page PDF | Completed, 1/1 impressions; card showed uploading, queued, printing, then `Print complete ✓ (1 page)`. |
 | 361 | Production card upload followed immediately by card cancel | Canceled, zero impressions/sheets, `job-canceled-by-user`; card showed `Cancelling…` then `Print canceled`. |
 | 362 | Controlled direct IPP retry with explicit Letter media and attribute fidelity | Completed; user confirmed one sheet, front and back. |
-| 363 | Patched HA `print_file` action with copies 1 and long-edge duplex | Completed, 2/2 impressions, one terminal event; physical confirmation pending. |
+| 363 | Patched HA `print_file` action with copies 1 and long-edge duplex | Completed, 2/2 impressions, one terminal event; user confirmed one sheet. |
 
-Each HA-tracked job emitted one terminal event with matching config-entry identity. Sensor
+Each HA-tracked job emitted one terminal event with matching config-entry
+identity. Sensor
 returned to idle and card ended its subscription after terminal state. Direct
 printer queries confirmed completed/canceled states. A nonexistent job query
 returned the expected `JobGoneError`.
 
 The printer omits `copies` and `sides` from Get-Job-Attributes even when explicitly
 requested. Acceptance/completion therefore does not prove physical duplex output.
-The user confirmed job 359 printed on two sheets and job 362 printed on one
-sheet, front and back. Both jobs reported two completed media sheets, so this
-printer’s sheet counters do not establish physical duplex output.
+The user confirmed job 359 printed on two sheets, job 362 printed on one
+sheet front/back, and job 363 used one sheet. Jobs 359 and 362 both reported two
+completed media sheets, so this printer’s counters do not establish physical
+duplex output.
 
 ## Duplex failure and repair
 
@@ -59,13 +63,16 @@ The original request omitted fidelity, permitting silent substitution to simplex
 [IPP semantics](https://www.rfc-editor.org/rfc/rfc8011#section-4.2.1.1) require
 printers to honor explicit job settings or reject them when fidelity is true.
 
-The patch probes `media-default` and sends it with explicit sides settings.
+The patch probes current `media-default` before every explicit sides job and
+sends that value automatically. It does not require a user-supplied paper size.
+If the fresh probe fails, it refuses to submit using stale paper settings.
 It requires fidelity for explicit copies, sides, or media. An unsupported-settings
 response produces an actionable error without starting tracking. Default uploads
-continue to use printer defaults. README explains matching loaded paper and
-reloading after changing the default paper size. Regression tests exercise the
-real HTTP payload, fidelity placement, missing/A4 defaults, unchanged default
-uploads, and rejected jobs not starting tracking.
+continue to use printer defaults. README explains matching loaded paper; changed
+printer defaults are picked up automatically. Paper size is the printer’s configured default, not physical
+stock-type detection. Regression tests exercise the real HTTP payload, fidelity placement, missing/A4 defaults, unchanged default
+uploads, rejected jobs not starting tracking, refresh after changed defaults,
+and probe failure not submitting stale settings.
 
 ## Live API and lifecycle checks
 
