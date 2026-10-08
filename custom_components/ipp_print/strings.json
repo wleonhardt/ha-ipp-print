@@ -76,7 +76,7 @@
   "services": {
     "print_file": {
       "name": "Print file",
-      "description": "Send a file on the Home Assistant host to the printer. The path must be under www/, a media directory, or allowlist_external_dirs.",
+      "description": "Send a file on the Home Assistant host to a printer. Target the printer's job sensor (or device); optional when only one printer is configured. The path must be under www/, a media directory, or allowlist_external_dirs.",
       "fields": {
         "path": {
           "name": "Path",

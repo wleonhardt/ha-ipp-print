@@ -1,4 +1,8 @@
 print_file:
+  target:
+    entity:
+      integration: ipp_print
+      domain: sensor
   fields:
     path:
       required: true

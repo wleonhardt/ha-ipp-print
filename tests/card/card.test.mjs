@@ -23,10 +23,14 @@ function boot() {
   return dom.window;
 }
 
-function makeHass(win, { fetchImpl, states = {} } = {}) {
+// Default registry: one ipp_print sensor, so cards without `entity:` resolve.
+const ONE_PRINTER = { [SENSOR]: { entity_id: SENSOR, platform: 'ipp_print' } };
+
+function makeHass(win, { fetchImpl, states = {}, entities = ONE_PRINTER } = {}) {
   const calls = { subscribe: [], fetch: [] };
   const hass = {
     states,
+    entities,
     fetchWithAuth: async (url, init) => {
       calls.fetch.push({ url, init });
       return fetchImpl(url, init);
@@ -103,6 +107,8 @@ test('upload posts to the endpoint and follows the job via subscribe_entities', 
 
   assert.equal(calls.fetch[0].url, '/api/ipp_print/print');
   assert.equal(calls.fetch[0].init.method, 'POST');
+  // The followed sensor is also the printer target.
+  assert.equal(calls.fetch[0].init.body.get('entity_id'), 'sensor.office_job');
   assert.equal(el._activeJobId, 42);
   const status = el.shadowRoot.querySelector('.status');
   assert.match(status.textContent, /Submitted ✓ doc\.pdf/);
@@ -183,8 +189,58 @@ test('cancel posts the active job id', async () => {
   });
   el.hass = hass;
   el._activeJobId = 5;
+  el._activeSensorId = SENSOR;
   await el._cancelJob();
   assert.equal(calls.fetch[0].url, '/api/ipp_print/cancel');
-  assert.equal(JSON.parse(calls.fetch[0].init.body).job_id, 5);
+  const body = JSON.parse(calls.fetch[0].init.body);
+  assert.equal(body.job_id, 5);
+  assert.equal(body.entity_id, SENSOR);
   assert.equal(el.shadowRoot.querySelector('.status').textContent, 'Cancelling…');
+});
+
+test('discovers the only ipp_print sensor from the entity registry', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win, {
+    fetchImpl: async () => jsonResponse({ ok: true, job_id: 1 }),
+    entities: {
+      'sensor.hp_current_job': { entity_id: 'sensor.hp_current_job', platform: 'ipp_print' },
+      'light.desk': { entity_id: 'light.desk', platform: 'hue' },
+    },
+  });
+  el.hass = hass;
+  await el._upload(file(win, 'a.pdf', 'application/pdf'));
+  await tick();
+  assert.equal(calls.fetch[0].init.body.get('entity_id'), 'sensor.hp_current_job');
+  assert.equal(JSON.stringify(calls.subscribe[0].msg.entity_ids), '["sensor.hp_current_job"]');
+});
+
+test('legacy sensor.printer_current_job still works without a registry hit', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win, {
+    fetchImpl: async () => jsonResponse({ ok: true, job_id: 1 }),
+    entities: {},
+    states: { [SENSOR]: { state: 'idle', attributes: {} } },
+  });
+  el.hass = hass;
+  await el._upload(file(win, 'a.pdf', 'application/pdf'));
+  assert.equal(calls.fetch[0].init.body.get('entity_id'), SENSOR);
+});
+
+test('refuses to upload when several printers exist and no entity is set', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win, {
+    fetchImpl: async () => jsonResponse({ ok: true }),
+    entities: {
+      'sensor.a_current_job': { entity_id: 'sensor.a_current_job', platform: 'ipp_print' },
+      'sensor.b_current_job': { entity_id: 'sensor.b_current_job', platform: 'ipp_print' },
+    },
+  });
+  el.hass = hass;
+  await el._upload(file(win, 'a.pdf', 'application/pdf'));
+  assert.equal(calls.fetch.length, 0);
+  assert.match(el.shadowRoot.querySelector('.status').textContent, /set entity:/);
+  assert.ok(!el._busy);
 });

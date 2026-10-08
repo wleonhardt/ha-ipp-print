@@ -4,7 +4,8 @@
 // Type:  custom:ipp-print-upload-card
 // Options:
 //   title:   string, default "Print PDF"
-//   entity:  job sensor to follow, default "sensor.printer_current_job"
+//   entity:  job sensor of the printer to print to. Optional with one
+//            printer configured; required once there are several.
 //
 // IMPORTANT: customElements.define() is at line ~10 — register the tag as
 // early as possible so HA's lovelace card factory can resolve `custom:` cards
@@ -15,7 +16,6 @@
 // "later" in the same script.
 
 const TAG = 'ipp-print-upload-card';
-const DEFAULT_JOB_SENSOR = 'sensor.printer_current_job';
 const ACCEPTED_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
 if (!customElements.get(TAG)) {
@@ -27,9 +27,7 @@ const C = customElements.get(TAG);
 C.getStubConfig = function () { return { title: 'Print PDF' }; };
 
 C.prototype.setConfig = function (config) {
-  this._config = Object.assign(
-    { title: 'Print PDF', entity: DEFAULT_JOB_SENSOR }, config || {},
-  );
+  this._config = Object.assign({ title: 'Print PDF' }, config || {});
   this._render();
   // _render is one-shot; apply config changes (card editor) directly.
   if (this._titleEl) this._titleEl.textContent = this._config.title;
@@ -181,13 +179,36 @@ C.prototype._authedFetch = function (path, init) {
   }));
 };
 
+// The job sensor doubles as the printer selector for the endpoints. With no
+// `entity:` configured, find the integration's sensors in the entity
+// registry (hass.entities is available to non-admins too) and use the only
+// one; several means the user must pick. Legacy installs keep
+// sensor.printer_current_job in the registry, so it is found the same way.
+C.prototype._sensorId = function () {
+  if (this._config?.entity) return this._config.entity;
+  const hass = this._getHass();
+  const ids = Object.values(hass?.entities || {})
+    .filter((e) => e.platform === 'ipp_print' && e.entity_id.startsWith('sensor.'))
+    .map((e) => e.entity_id);
+  if (ids.length === 1) return ids[0];
+  if (ids.length === 0 && hass?.states?.['sensor.printer_current_job']) {
+    return 'sensor.printer_current_job';
+  }
+  if (ids.length > 1) {
+    throw new Error('several printers configured; set entity: on the card');
+  }
+  return null;
+};
+
 C.prototype._cancelJob = async function () {
   if (this._activeJobId == null) return;
   try {
     const r = await this._authedFetch('/api/ipp_print/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: this._activeJobId }),
+      body: JSON.stringify({
+        job_id: this._activeJobId, entity_id: this._activeSensorId,
+      }),
     });
     if (!r.ok) {
       const body = await r.text();
@@ -249,11 +270,19 @@ C.prototype._upload = async function (file) {
     this._setStatus('Pick a PDF, JPEG, or PNG file.', 'err');
     return;
   }
+  let sensorId;
+  try {
+    sensorId = this._sensorId();
+  } catch (err) {
+    this._setStatus(err.message, 'err');
+    return;
+  }
   this._busy = true;
   this._card.classList.add('busy');
   this._setStatus('Uploading…');
 
   const form = new FormData();
+  if (sensorId) form.append('entity_id', sensorId);
   form.append('file', file, file.name);
 
   try {
@@ -273,9 +302,10 @@ C.prototype._upload = async function (file) {
     }
     const name = (body && body.filename) || file.name;
     this._activeJobId = body?.job_id ?? null;
+    this._activeSensorId = sensorId;
     this._setStatus(`Submitted ✓ ${name}`, 'ok');
-    // Subscribe to printer_current_job updates for this job-id.
-    this._trackPrintProgress().catch((e) => {
+    // Subscribe to the job sensor's updates for this job-id.
+    this._trackPrintProgress(sensorId).catch((e) => {
       console.warn('[ipp-print] progress tracking error', e);
     });
   } catch (err) {
@@ -295,9 +325,9 @@ const ACTIVE_STATES = new Set([
   'pending', 'pending-held', 'processing', 'processing-stopped',
 ]);
 
-C.prototype._trackPrintProgress = async function () {
+C.prototype._trackPrintProgress = async function (sensorId) {
   const hass = this._getHass();
-  if (!hass || !hass.connection) return;
+  if (!hass || !hass.connection || !sensorId) return;
 
   // Cancel any previous subscription so successive uploads don't overlap.
   if (this._unsubProgress) {
@@ -349,7 +379,6 @@ C.prototype._trackPrintProgress = async function () {
   // Push the initial render from the current sensor snapshot — the
   // coordinator may have already moved the job into pending before we
   // subscribed.
-  const sensorId = this._config?.entity || DEFAULT_JOB_SENSOR;
   const initial = hass.states[sensorId];
   // Local mirror of the sensor; subscribe_entities sends diffs.
   const cur = {

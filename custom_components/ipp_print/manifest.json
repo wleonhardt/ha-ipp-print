@@ -9,7 +9,6 @@
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/wleonhardt/ha-ipp-print/issues",
-  "single_config_entry": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "zeroconf": ["_ipps._tcp.local.", "_ipp._tcp.local."]
 }

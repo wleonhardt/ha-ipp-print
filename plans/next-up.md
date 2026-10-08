@@ -6,6 +6,11 @@
 
 ## Done
 
+- 2026-10-08 — v0.4.0: multiple printers (#7). `single_config_entry` dropped; service
+  `target:`, `entity_id` on both endpoints, card discovers/sends its sensor; sensor entity_id
+  derived from device name. Decision: [decisions/2026-10-08-multiple-printers.md](decisions/2026-10-08-multiple-printers.md).
+  Not live-tested with two physical printers.
+
 - 2026-09-06 — Live test of v0.3.0 on HA 2026.9.1 against HP M283fdw (10.11.30.190:631, plain IPP):
   Get-Printer-Attributes parsed (formats incl. pdf/jpeg/octet-stream, both duplex modes, copies 999);
   port 443 needs relaxed ciphers (SECLEVEL=1 works); `ipp_print.print_file` with

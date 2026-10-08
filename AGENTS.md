@@ -59,7 +59,7 @@ git ls-files | grep -i pyc                            # must be empty
 - `custom_components/ipp_print/__init__.py` — setup, HTTP views (`/api/ipp_print/{print,cancel}`), card static path + lovelace resource sync
 - `custom_components/ipp_print/printer.py` — minimal IPP/2.0 wire client (Print-Job, Get-Job-Attributes, Cancel-Job)
 - `custom_components/ipp_print/coordinator.py` — per-job poll loop (1.5 s), fires `ipp_print_job_state_changed` / `ipp_print_job_completed`
-- `custom_components/ipp_print/sensor.py` — `sensor.printer_current_job` (hardcoded entity_id)
+- `custom_components/ipp_print/sensor.py` — per-printer `Current job` sensor (entity_id derived from device name)
 - `custom_components/ipp_print/config_flow.py` — config + options flow
 - `custom_components/ipp_print/static/card.js` — Lovelace upload card + self-heal machinery
 - `examples/` — dashboard YAML; `assets/` — screenshots

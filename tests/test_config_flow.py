@@ -85,15 +85,15 @@ async def test_user_flow_cannot_connect(hass, printer_attrs):
     assert "no route to host" in result["description_placeholders"]["error_detail"]
 
 
-async def test_second_entry_blocked(hass):
+async def test_second_printer_allowed(hass):
     MockConfigEntry(
         domain=DOMAIN, data={"host": "192.0.2.10"}, unique_id="192.0.2.10:443"
     ).add_to_hass(hass)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
-    # single_config_entry (or duplicate unique_id) must abort the flow.
-    assert result["type"] is FlowResultType.ABORT
+    # A different printer is a second entry; only the same unique_id aborts.
+    assert result["type"] is FlowResultType.FORM
 
 
 async def test_zeroconf_flow(hass):

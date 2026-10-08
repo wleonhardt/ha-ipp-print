@@ -38,19 +38,19 @@ async def test_setup_survives_printer_offline(hass, printer_attrs):
     entry = await _setup(hass)
     data = hass.data[DOMAIN][entry.entry_id]
     assert data["printer_info"] is None
-    # Sensor still exists with a host-derived device name.
-    state = hass.states.get("sensor.printer_current_job")
+    # Sensor still exists; entity_id derives from the entry title (device name).
+    state = hass.states.get("sensor.mock_title_current_job")
     assert state is not None and state.state == "idle"
 
 
 async def test_sensor_mirrors_coordinator(hass):
     entry = await _setup(hass)
     coord: JobCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    assert hass.states.get("sensor.printer_current_job").state == "idle"
+    assert hass.states.get("sensor.test_printer_current_job").state == "idle"
     with patch.object(JobCoordinator, "_ensure_poll_loop"):
         coord.track(job_id=3, filename="x.pdf", bytes_sent=5)
     await hass.async_block_till_done()
-    state = hass.states.get("sensor.printer_current_job")
+    state = hass.states.get("sensor.test_printer_current_job")
     assert state.state == "pending"
     assert state.attributes["job_id"] == 3
     assert state.attributes["filename"] == "x.pdf"

@@ -6,6 +6,8 @@ triggers:
     at: "07:00:00"
 actions:
   - action: ipp_print.print_file
+    target:
+      entity_id: sensor.office_current_job   # omit when only one printer is configured
     data:
       path: /config/www/reports/today.pdf
       copies: 1

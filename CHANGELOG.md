@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.4.0] - 2026-10-08
+
+### Added
+- **Multiple printers.** Add as many config entries as you have printers;
+  each gets its own device and `Current job` sensor (#7).
+- `ipp_print.print_file` takes a `target:` (job sensor or device) to pick
+  the printer. `POST /api/ipp_print/print` accepts an `entity_id` form
+  field and `POST /api/ipp_print/cancel` an `entity_id` JSON key for the
+  same purpose. All of these stay optional while only one printer is
+  configured; with several they are required (`400`).
+- The card uploads to the printer whose job sensor it follows (`entity:`).
+  With one printer it finds the sensor on its own; with several it asks
+  you to set `entity:`.
+
+### Changed
+- The job sensor's entity_id is now derived from the device name
+  (`sensor.<printer>_current_job`) instead of being fixed to
+  `sensor.printer_current_job`. Existing installs keep their current id
+  via the entity registry; new installs get the derived one.
+
 ## [0.3.0] - 2026-09-06
 
 ### Added

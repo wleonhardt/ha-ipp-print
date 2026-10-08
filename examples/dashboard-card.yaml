@@ -6,3 +6,4 @@
 
 type: custom:ipp-print-upload-card
 title: Print PDF
+# entity: sensor.office_current_job   # needed only with several printers configured

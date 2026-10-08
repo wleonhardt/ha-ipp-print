@@ -29,12 +29,33 @@ async def _setup(hass):
     return entry
 
 
-def _form(payload: bytes, field: str = "file", filename: str = "doc.pdf"):
+def _form(
+    payload: bytes,
+    field: str = "file",
+    filename: str = "doc.pdf",
+    entity_id: str | None = None,
+):
     form = aiohttp.FormData()
+    if entity_id:
+        form.add_field("entity_id", entity_id)
     form.add_field(
         field, payload, filename=filename, content_type="application/pdf"
     )
     return form
+
+
+async def _setup_two(hass):
+    a = MockConfigEntry(
+        domain=DOMAIN, data={"host": "127.0.0.1"}, unique_id="127.0.0.1:443"
+    )
+    b = MockConfigEntry(
+        domain=DOMAIN, data={"host": "127.0.0.2"}, unique_id="127.0.0.2:443"
+    )
+    for e in (a, b):
+        e.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(e.entry_id)
+    await hass.async_block_till_done()
+    return a, b
 
 
 async def test_print_happy_path(hass, hass_client):
@@ -212,3 +233,74 @@ async def test_print_unconfigured_refuses_before_reading_body(hass, hass_client)
         headers={"Content-Type": "text/plain"},
     )
     assert resp.status == 503
+
+
+async def test_print_two_printers_requires_entity_id(hass, hass_client):
+    await _setup_two(hass)
+    client = await hass_client()
+    resp = await client.post("/api/ipp_print/print", data=_form(PDF))
+    assert resp.status == 400
+    assert "several printers" in (await resp.json())["message"]
+
+
+async def test_print_routes_by_entity_id(hass, hass_client):
+    a, b = await _setup_two(hass)
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ), patch.object(JobCoordinator, "_ensure_poll_loop"):
+        client = await hass_client()
+        resp = await client.post(
+            "/api/ipp_print/print",
+            data=_form(PDF, entity_id="sensor.test_printer_current_job_2"),
+        )
+        assert resp.status == 200
+    assert hass.data[DOMAIN][b.entry_id]["coordinator"].knows(42)
+    assert not hass.data[DOMAIN][a.entry_id]["coordinator"].knows(42)
+
+
+async def test_print_entity_id_after_file_field(hass, hass_client):
+    """Field order must not matter."""
+    a, b = await _setup_two(hass)
+    form = aiohttp.FormData()
+    form.add_field("file", PDF, filename="doc.pdf", content_type="application/pdf")
+    form.add_field("entity_id", "sensor.test_printer_current_job")
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ), patch.object(JobCoordinator, "_ensure_poll_loop"):
+        client = await hass_client()
+        resp = await client.post("/api/ipp_print/print", data=form)
+        assert resp.status == 200
+    assert hass.data[DOMAIN][a.entry_id]["coordinator"].knows(42)
+
+
+async def test_print_unknown_entity_id_is_404(hass, hass_client):
+    await _setup(hass)
+    client = await hass_client()
+    resp = await client.post(
+        "/api/ipp_print/print", data=_form(PDF, entity_id="sensor.nope")
+    )
+    assert resp.status == 404
+
+
+async def test_cancel_two_printers_routes_by_entity_id(hass, hass_client):
+    a, b = await _setup_two(hass)
+    with patch.object(JobCoordinator, "_ensure_poll_loop"):
+        hass.data[DOMAIN][b.entry_id]["coordinator"].track(
+            job_id=7, filename="x.pdf", bytes_sent=1
+        )
+    client = await hass_client()
+    resp = await client.post("/api/ipp_print/cancel", json={"job_id": 7})
+    assert resp.status == 400
+    with patch.object(
+        integration.PrinterClient, "cancel_job", new=AsyncMock(return_value=0)
+    ):
+        resp = await client.post(
+            "/api/ipp_print/cancel",
+            json={"job_id": 7, "entity_id": "sensor.test_printer_current_job"},
+        )
+        assert resp.status == 404  # printer A never saw job 7
+        resp = await client.post(
+            "/api/ipp_print/cancel",
+            json={"job_id": 7, "entity_id": "sensor.test_printer_current_job_2"},
+        )
+        assert resp.status == 200

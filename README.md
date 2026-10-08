@@ -43,7 +43,8 @@ HA entities, per-job progress, or a clean UI.
 - 🖨️ Direct IPP submission — PDF, JPEG, PNG; any IPP printer or CUPS queue
 - 🔎 Zeroconf discovery — printers show up under *Discovered* automatically
 - 🤖 `ipp_print.print_file` action — print from automations, with copies + duplex
-- 📊 Per-job sensor (`sensor.printer_current_job`) with live page progress
+- 📊 Per-job sensor (`sensor.<printer>_current_job`) with live page progress
+- 🖨️🖨️ Several printers per install — one device each, pick by sensor
 - 🔔 Bus events for state changes and completion
 - 🛑 Cancel-Job support with a button on the card
 - 🎨 Theme-aware Lovelace card with file picker, status text, and cancel UI
@@ -107,14 +108,19 @@ It also appears in the card picker as **IPP Print Upload**.
 ```yaml
 type: custom:ipp-print-upload-card
 title: Print PDF                       # optional, defaults to "Print PDF"
-entity: sensor.printer_current_job     # optional, only if you renamed the sensor
+entity: sensor.office_current_job      # the printer's job sensor; optional with one printer
 ```
+
+With one printer configured the card finds its sensor by itself. With
+several, add one card per printer and set `entity:` to that printer's job
+sensor — the card uploads to the printer that sensor belongs to.
 
 The card follows your active HA theme (`--primary-color` accent).
 
 ## Sensor + events
 
-`sensor.printer_current_job`
+`sensor.<printer>_current_job` — one per configured printer, named after the
+device (installs from before 0.4.0 keep `sensor.printer_current_job`).
 
 | Field | Value |
 |---|---|
@@ -167,6 +173,7 @@ Print a file that lives on the Home Assistant host. The path must be under
 | `job_name` | Optional. Defaults to the file name |
 | `copies` | Optional, 1–99 |
 | `sides` | Optional: `one-sided`, `two-sided-long-edge`, `two-sided-short-edge` (checked against what the printer advertises) |
+| `target` | The printer's job sensor or device. Optional with one printer configured; required with several |
 
 Returns `{job_id, filename, bytes, state}` when called with
 `response_variable`.
@@ -179,6 +186,8 @@ automation:
         event_type: escl_scan_job_completed
     actions:
       - action: ipp_print.print_file
+        target:
+          entity_id: sensor.office_current_job   # omit with a single printer
         data:
           path: "{{ trigger.event.data.path }}"
           sides: two-sided-long-edge
@@ -196,7 +205,8 @@ auth token; any authenticated user may call them):
 ### `POST /api/ipp_print/print`
 
 Multipart form-data, field name `file` (PDF, JPEG, or PNG — identified from
-content). Returns:
+content). With several printers configured, add a text field `entity_id`
+holding the target printer's job sensor (`400` without it). Returns:
 
 ```json
 {"ok": true, "filename": "doc.pdf", "bytes": 13264, "job_id": 42, "state": "pending"}
@@ -206,13 +216,16 @@ Example with a long-lived access token:
 
 ```bash
 curl -H "Authorization: Bearer $HA_TOKEN" -F file=@doc.pdf http://homeassistant.local:8123/api/ipp_print/print
+# several printers:
+curl -H "Authorization: Bearer $HA_TOKEN" -F entity_id=sensor.office_current_job -F file=@doc.pdf http://homeassistant.local:8123/api/ipp_print/print
 ```
 
 ### `POST /api/ipp_print/cancel`
 
-JSON body `{"job_id": 42}`. Returns `{"ok": true, "job_id": 42}` on success.
-Only job-ids submitted through this integration can be cancelled (unknown
-ids return 404).
+JSON body `{"job_id": 42}`, plus `"entity_id"` (the printer's job sensor)
+when several printers are configured — job ids are only unique per printer.
+Returns `{"ok": true, "job_id": 42}` on success. Only job-ids submitted
+through this integration can be cancelled (unknown ids return 404).
 
 ## Troubleshooting
 
@@ -222,6 +235,7 @@ ids return 404).
 | `authentication failed (check user/password)` | Printer requires HTTP basic auth, or credentials are wrong. |
 | Job shows `aborted` with `printer-unreachable` | Printer stopped answering mid-job (power, Wi-Fi). Tracking gives up after ~10 failed polls. |
 | Card stuck on "Submitted" | Sensor renamed? Set `entity:` on the card. |
+| Card says `several printers configured; set entity:` | More than one printer is set up. Add `entity:` with that printer's job sensor. |
 | `printer does not accept image/png (supported: …)` | Checked against the printer's advertised formats. Convert, or pass `document_format: application/octet-stream` via the action if the printer auto-senses. |
 | `printer refused job (ipp_status=0x040a)` | `client-error-document-format-not-supported` — printer does not accept that format natively. |
 | Printer not discovered | It must advertise `_ipp._tcp`/`_ipps._tcp` on the same L2 network as HA. Add it manually otherwise. |
@@ -245,9 +259,8 @@ logger:
   (almost all modern printers do PDF and JPEG; PNG varies). Point the
   integration at a CUPS queue if you need driver-side conversion.
 - **50 MiB upload cap.** Open an issue if you need more.
-- **Single printer per install.** The endpoints and sensor are bound to one
-  configured printer (`single_config_entry`). Multiple submissions queue at
-  the printer side; the sensor reflects the *most recent* job.
+- **One tracked job per printer.** Multiple submissions queue at the
+  printer side; each printer's sensor reflects its *most recent* job.
 - **HP LaserJets:** several models (M283fdw, M227, etc.) only offer non-PFS
   TLS ciphers. Enable "Allow legacy cipher suites" in the config flow.
 
@@ -262,7 +275,7 @@ custom_components/ipp_print/
 ├── diagnostics.py
 ├── manifest.json
 ├── printer.py         # IPP wire format + client
-├── sensor.py          # sensor.printer_current_job + device
+├── sensor.py          # per-printer "Current job" sensor + device
 ├── services.yaml      # ipp_print.print_file
 ├── static/card.js     # the Lovelace card
 ├── strings.json

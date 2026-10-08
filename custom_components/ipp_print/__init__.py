@@ -21,6 +21,8 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.service import async_extract_config_entry_ids
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -73,7 +75,7 @@ PRINT_FILE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_COPIES): vol.All(vol.Coerce(int), vol.Range(min=1, max=99)),
         vol.Optional(ATTR_SIDES): vol.In(SIDES),
     }
-)
+).extend(cv.TARGET_SERVICE_FIELDS)
 
 
 def _safe_filename(filename: str | None, fmt: str = "application/pdf") -> str:
@@ -261,19 +263,16 @@ async def _sync_lovelace_resource(hass: HomeAssistant, card_url: str) -> None:
         _add_extra_js_once(hass, card_url)
 
 
-def _live_entry(hass: HomeAssistant) -> dict | None:
-    """Return the configured entry's client/coordinator dict, or None.
+def _live_entries(hass: HomeAssistant) -> dict[str, dict]:
+    """entry_id → client/coordinator dict for every loaded printer.
 
-    The integration declares single_config_entry, so at most one real entry
-    exists alongside the underscore-prefixed bookkeeping keys.
+    hass.data[DOMAIN] also holds underscore-prefixed bookkeeping keys.
     """
-    entries = hass.data.get(DOMAIN, {})
-    for key, entry_data in entries.items():
-        if key.startswith("_"):
-            continue
-        if "coordinator" in entry_data and "client" in entry_data:
-            return entry_data
-    return None
+    return {
+        key: entry_data
+        for key, entry_data in hass.data.get(DOMAIN, {}).items()
+        if not key.startswith("_") and "coordinator" in entry_data
+    }
 
 
 class SubmitError(Exception):
@@ -282,6 +281,40 @@ class SubmitError(Exception):
     def __init__(self, message: str, status: int) -> None:
         super().__init__(message)
         self.status = status
+
+
+def _pick_entry(hass: HomeAssistant, entry_ids: set[str] | None) -> dict | None:
+    """Choose the printer to act on.
+
+    `entry_ids` is the set the caller targeted (None = no target given).
+    With no target, the single configured printer is used; with several
+    configured a target is required. Returns None when nothing is loaded.
+    """
+    live = _live_entries(hass)
+    if not live:
+        return None
+    if entry_ids is None:
+        if len(live) == 1:
+            return next(iter(live.values()))
+        raise SubmitError(
+            "several printers are configured; pass entity_id to pick one", 400
+        )
+    hits = [live[eid] for eid in entry_ids if eid in live]
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        raise SubmitError("target is not a loaded IPP Print printer", 404)
+    raise SubmitError("target matches more than one printer", 400)
+
+
+def _entry_for_entity(hass: HomeAssistant, entity_id: str | None) -> dict | None:
+    """Resolve an optional job-sensor entity_id (views) to its printer."""
+    if not entity_id:
+        return _pick_entry(hass, None)
+    reg_entry = er.async_get(hass).async_get(entity_id)
+    if reg_entry is None or reg_entry.platform != DOMAIN:
+        raise SubmitError(f"{entity_id} is not an IPP Print entity", 404)
+    return _pick_entry(hass, {reg_entry.config_entry_id})
 
 
 async def _submit(
@@ -370,7 +403,14 @@ def _read_file_capped(path: str) -> bytes:
 
 def _make_print_file_handler(hass: HomeAssistant):
     async def _handle(call: ServiceCall) -> ServiceResponse:
-        live = _live_entry(hass)
+        targeted = any(k in call.data for k in cv.TARGET_SERVICE_FIELDS)
+        try:
+            live = _pick_entry(
+                hass,
+                await async_extract_config_entry_ids(call) if targeted else None,
+            )
+        except SubmitError as exc:
+            raise ServiceValidationError(str(exc)) from exc
         if live is None:
             raise ServiceValidationError("IPP Print is not configured")
 
@@ -415,8 +455,9 @@ def _make_print_file_handler(hass: HomeAssistant):
 class PrintView(HomeAssistantView):
     """POST /api/ipp_print/print
 
-    Multipart/form-data with field 'file' = PDF / JPEG / PNG. Identifies the
-    format from content, submits via IPP Print-Job, returns
+    Multipart/form-data with field 'file' = PDF / JPEG / PNG and, when more
+    than one printer is configured, 'entity_id' = that printer's job sensor.
+    Identifies the format from content, submits via IPP Print-Job, returns
     {ok, filename, bytes, job_id, state}.
     """
 
@@ -430,8 +471,7 @@ class PrintView(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         # Refuse before touching the body so an unconfigured install doesn't
         # buffer a 50 MiB upload just to answer 503.
-        live = _live_entry(self._hass)
-        if live is None:
+        if not _live_entries(self._hass):
             return self.json_message("integration not configured", status_code=503)
 
         try:
@@ -441,24 +481,32 @@ class PrintView(HomeAssistantView):
             return self.json_message("invalid multipart body", status_code=400)
 
         field = None
+        entity_id: str | None = None
+        buf = bytearray()
         while True:
             part = await reader.next()
             if part is None:
                 break
-            if part.name == "file":
+            if part.name == "entity_id":
+                entity_id = (await part.text()).strip() or None
+            elif part.name == "file":
                 field = part
-                break
+                while True:
+                    chunk = await field.read_chunk(64 * 1024)
+                    if not chunk:
+                        break
+                    buf.extend(chunk)
+                    if len(buf) > MAX_UPLOAD_BYTES:
+                        return self.json_message("too large", status_code=413)
         if field is None:
             return self.json_message("missing 'file' field", status_code=400)
 
-        buf = bytearray()
-        while True:
-            chunk = await field.read_chunk(64 * 1024)
-            if not chunk:
-                break
-            buf.extend(chunk)
-            if len(buf) > MAX_UPLOAD_BYTES:
-                return self.json_message("too large", status_code=413)
+        try:
+            live = _entry_for_entity(self._hass, entity_id)
+        except SubmitError as exc:
+            return self.json_message(str(exc), status_code=exc.status)
+        if live is None:
+            return self.json_message("integration not configured", status_code=503)
 
         fmt = sniff_format(buf)
         if fmt is None:
@@ -477,7 +525,11 @@ class PrintView(HomeAssistantView):
 
 
 class CancelView(HomeAssistantView):
-    """POST /api/ipp_print/cancel  body: {"job_id": int}"""
+    """POST /api/ipp_print/cancel  body: {"job_id": int, "entity_id"?: str}
+
+    entity_id (the printer's job sensor) is required once more than one
+    printer is configured — job ids are only unique per printer.
+    """
 
     url = "/api/ipp_print/cancel"
     name = "api:ipp_print:cancel"
@@ -496,7 +548,13 @@ class CancelView(HomeAssistantView):
             return self.json_message(
                 "missing or invalid 'job_id'", status_code=400
             )
-        live = _live_entry(self._hass)
+        entity_id = data.get("entity_id")
+        if entity_id is not None and not isinstance(entity_id, str):
+            return self.json_message("invalid 'entity_id'", status_code=400)
+        try:
+            live = _entry_for_entity(self._hass, entity_id)
+        except SubmitError as exc:
+            return self.json_message(str(exc), status_code=exc.status)
         if live is None:
             return self.json_message("integration not configured", status_code=503)
         coordinator = live["coordinator"]

@@ -85,7 +85,7 @@ async def test_print_file_unknown_type_needs_explicit_format(hass, tmp_path):
     with patch.object(
         integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
     ) as pj, patch.object(JobCoordinator, "_ensure_poll_loop"):
-        live = integration._live_entry(hass)
+        live = integration._pick_entry(hass, None)
         live["printer_info"].formats.append("application/octet-stream")
         await hass.services.async_call(
             DOMAIN, "print_file",
@@ -142,3 +142,72 @@ async def test_device_and_diagnostics(hass):
     assert diag["printer"]["make_and_model"] == "Acme LaserJet 1000"
     assert diag["printer_uri"] == "ipps://127.0.0.1/ipp/print"
     assert diag["current_job"] is None
+
+
+async def _setup_two(hass):
+    a = MockConfigEntry(
+        domain=DOMAIN, data={"host": "127.0.0.1"}, unique_id="127.0.0.1:443",
+        title="Office",
+    )
+    b = MockConfigEntry(
+        domain=DOMAIN, data={"host": "127.0.0.2"}, unique_id="127.0.0.2:443",
+        title="Lab",
+    )
+    for e in (a, b):
+        e.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(e.entry_id)
+    await hass.async_block_till_done()
+    return a, b
+
+
+async def test_print_file_two_printers_requires_target(hass, www):
+    await _setup_two(hass)
+    with pytest.raises(ServiceValidationError, match="several printers"):
+        await hass.services.async_call(
+            DOMAIN, "print_file", {"path": str(www)}, blocking=True
+        )
+
+
+async def test_print_file_routes_by_entity_target(hass, www):
+    a, b = await _setup_two(hass)
+    coord_b = hass.data[DOMAIN][b.entry_id]["coordinator"]
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ) as pj, patch.object(JobCoordinator, "_ensure_poll_loop"):
+        await hass.services.async_call(
+            DOMAIN, "print_file",
+            {"path": str(www), "entity_id": "sensor.test_printer_current_job_2"},
+            blocking=True,
+        )
+    # Both entries share the canned PrinterInfo; the second sensor got "_2".
+    pj.assert_awaited_once()
+    assert coord_b.knows(42)
+    assert not hass.data[DOMAIN][a.entry_id]["coordinator"].knows(42)
+
+
+async def test_print_file_routes_by_device_target(hass, www):
+    from homeassistant.helpers import device_registry as dr
+
+    a, b = await _setup_two(hass)
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, a.entry_id)})
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ), patch.object(JobCoordinator, "_ensure_poll_loop"):
+        await hass.services.async_call(
+            DOMAIN, "print_file",
+            {"path": str(www), "device_id": device.id},
+            blocking=True,
+        )
+    assert hass.data[DOMAIN][a.entry_id]["coordinator"].knows(42)
+    assert not hass.data[DOMAIN][b.entry_id]["coordinator"].knows(42)
+
+
+async def test_print_file_foreign_entity_target(hass, www):
+    await _setup(hass)
+    hass.states.async_set("sensor.other", "1")
+    with pytest.raises(ServiceValidationError, match="not a loaded IPP Print"):
+        await hass.services.async_call(
+            DOMAIN, "print_file",
+            {"path": str(www), "entity_id": "sensor.other"},
+            blocking=True,
+        )

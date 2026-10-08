@@ -1,4 +1,4 @@
-"""sensor.printer_current_job — mirrors the active IPP job state."""
+"""Per-printer "Current job" sensor — mirrors the active IPP job state."""
 from __future__ import annotations
 
 import logging
@@ -73,8 +73,6 @@ class PrinterJobSensor(SensorEntity):
         self._coord: JobCoordinator = data["coordinator"]
         self._attr_unique_id = f"{entry.entry_id}_current_job"
         self._attr_device_info = _device_info(entry, data)
-        # Stable entity_id so the card can find it without renames.
-        self.entity_id = "sensor.printer_current_job"
         self._unsub = None
 
     async def async_added_to_hass(self) -> None:
