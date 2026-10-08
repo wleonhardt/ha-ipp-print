@@ -1,7 +1,8 @@
 # Code review — 2026-10-08
 
-Status: completed locally; fixes prepared as v0.4.1. No release or live-printer
-verification performed. Baseline: `89adcc5` (v0.4.0).
+Status: fixes prepared as v0.4.1; automated and live-printer validation performed.
+Release awaits physical duplex confirmation. Baseline: `89adcc5` (v0.4.0).
+See [live validation](2026-10-08-v041-live-validation.md).
 
 Reviewed every integration module, the card, tests, manifest, service schema,
 translations, README, project decisions, and validation/release workflows.
@@ -121,6 +122,9 @@ No framework, protocol library, or new runtime dependency was introduced.
 - No bytecode or build artifacts were staged.
 - The manifest and matching changelog are prepared for 0.4.1; README documents
   new outcome/event behavior and important lifecycle limits.
-- Container-based hassfest/HACS validation was not run: Docker's daemon is
-  unavailable on this host. Hosted CI and physical-printer behavior remain
-  unverified. No changes were pushed, tagged, or published.
+- Hosted [validation](https://github.com/wleonhardt/ha-ipp-print/actions/runs/37802319364)
+  passed all six jobs, including hassfest and HACS.
+- Candidate installed on HA 2026.9.4: service job 359 and card job 360 completed;
+  card job 361 canceled with zero impressions. Seven live API rejection checks
+  passed. Entry reload retained one current card resource and an idle sensor.
+- Physical duplex output remains under investigation; no v0.4.1 tag published.
