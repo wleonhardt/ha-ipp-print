@@ -53,8 +53,10 @@ from .const import (
     SERVICE_PRINT_FILE,
     sniff_format,
 )
+from .capability_cache import CapabilityCache
+from .capabilities import capability_snapshot, validate_copies
 from .coordinator import JobCoordinator
-from .printer import SIDES, IppError, IppHttpError, PrinterClient, PrinterInfo
+from .printer import SIDES, IppError, IppHttpError, PrinterClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,7 +77,7 @@ PRINT_FILE_SCHEMA = vol.Schema(
         vol.Required(ATTR_PATH): cv.string,
         vol.Optional(ATTR_DOCUMENT_FORMAT): cv.string,
         vol.Optional(ATTR_JOB_NAME): cv.string,
-        vol.Optional(ATTR_COPIES): vol.All(vol.Coerce(int), vol.Range(min=1, max=99)),
+        vol.Optional(ATTR_COPIES): validate_copies,
         vol.Optional(ATTR_SIDES): vol.In(SIDES),
     }
 ).extend(cv.TARGET_SERVICE_FIELDS)
@@ -127,27 +129,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         relaxed_ciphers=data.get(CONF_RELAXED_CIPHERS, False),
     )
     coordinator = JobCoordinator(hass, client, entry.entry_id)
+    capability_cache = CapabilityCache(lambda: client.get_printer_attrs())
     platform_setup_started = False
 
     try:
-        # Identity + capabilities. A printer that is off right now must not
-        # block setup (endpoints/service still work once it wakes), so failure
-        # here only degrades device info and format checks until next reload.
-        printer_info: PrinterInfo | None = None
-        try:
-            printer_info = await client.get_printer_attrs()
-        except Exception as exc:
-            _LOGGER.warning(
-                "%s: Get-Printer-Attributes failed (%s); device details and "
-                "format checks unavailable until the entry is reloaded",
-                data[CONF_HOST], exc,
-            )
+        # Setup remains usable while the printer is asleep/offline.
+        printer_info = await capability_cache.async_get()
+        if printer_info is None:
+            _LOGGER.warning("Printer capabilities unavailable; will retry on demand")
 
         hass.data.setdefault(DOMAIN, {})
         hass.data[DOMAIN][entry.entry_id] = {
             "client": client,
             "coordinator": coordinator,
             "printer_info": printer_info,
+            "capability_cache": capability_cache,
         }
 
         # Views look up the live coordinator/client from hass.data on every
@@ -156,6 +152,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if not hass.data[DOMAIN].get("_views_registered"):
             hass.http.register_view(PrintView(hass))
             hass.http.register_view(CancelView(hass))
+            hass.http.register_view(CapabilitiesView(hass))
             hass.data[DOMAIN]["_views_registered"] = True
         _LOGGER.info(
             "%s: endpoints ready at /api/%s/{print,cancel} (printer=%s)",
@@ -187,6 +184,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         async def _stop(_event) -> None:
+            await capability_cache.async_close()
             await coordinator.async_shutdown()
             await client.async_close()
 
@@ -203,6 +201,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception:
                 _LOGGER.exception("failed to clean up platforms after setup failure")
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        await capability_cache.async_close()
         await coordinator.async_shutdown()
         await client.async_close()
         raise
@@ -215,6 +214,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if data:
             # Stop the poll task and release pooled printer connections so a
             # reload can't leave the old coordinator polling the old config.
+            await data["capability_cache"].async_close()
             await data["coordinator"].async_shutdown()
             await data["client"].async_close()
     return unloaded
@@ -363,19 +363,24 @@ async def _submit(
     client: PrinterClient = live["client"]
     coordinator: JobCoordinator = live["coordinator"]
 
-    info: PrinterInfo | None = live.get("printer_info")
-    if info is None or sides:
-        # Sides needs current default media: paper settings may have changed
-        # since setup. Otherwise only retry a missing capability probe.
+    # Validate here as well as at HTTP/service boundaries: every caller shares
+    # the same strict options contract before a device probe or submission.
+    if copies is not None:
         try:
-            info = live["printer_info"] = await client.get_printer_attrs()
-        except Exception as exc:
-            _LOGGER.debug("Get-Printer-Attributes still failing: %s", exc)
-            if sides:
-                raise SubmitError(
-                    "cannot read the printer's current paper settings; "
-                    "check its connection. No print job was submitted", 502,
-                ) from exc
+            copies = validate_copies(copies)
+        except vol.Invalid as exc:
+            raise SubmitError(str(exc), 400) from exc
+    if sides is not None and sides not in SIDES:
+        raise SubmitError("invalid sides", 400)
+    cache = live["capability_cache"]
+    info = live["printer_info"] = await cache.async_get(fresh=sides is not None)
+    if cache.closed:
+        raise SubmitError("printer integration unloaded; no job submitted", 503)
+    if sides is not None and cache.metadata()["status"] != "fresh":
+        raise SubmitError(
+            "cannot read the printer's current paper settings; "
+            "check its connection. No print job was submitted", 502,
+        )
     if info is not None and info.formats and not info.supports_format(document_format):
         raise SubmitError(
             f"printer does not accept {document_format} "
@@ -548,11 +553,13 @@ class PrintView(HomeAssistantView):
 
         filename_raw: str | None = None
         entity_id: str | None = None
+        copies: int | None = None
+        sides: str | None = None
         seen: set[str] = set()
         buf = bytearray()
         try:
             while (part := await reader.next()) is not None:
-                if part.name not in ("entity_id", "file"):
+                if part.name not in ("entity_id", "file", "copies", "sides"):
                     raise SubmitError("unexpected multipart field", 400)
                 if part.name in seen:
                     raise SubmitError(f"duplicate '{part.name}' field", 400)
@@ -570,6 +577,15 @@ class PrintView(HomeAssistantView):
                     target.extend(chunk)
                 if part.name == "entity_id":
                     entity_id = target.decode("utf-8").strip() or None
+                elif part.name == "copies":
+                    try:
+                        copies = validate_copies(target.decode("utf-8"))
+                    except vol.Invalid as exc:
+                        raise SubmitError(str(exc), 400) from exc
+                elif part.name == "sides":
+                    sides = target.decode("utf-8")
+                    if sides not in SIDES:
+                        raise SubmitError("invalid sides", 400)
         except SubmitError as exc:
             return self.json_message(str(exc), status_code=exc.status)
         except Exception as exc:
@@ -594,11 +610,46 @@ class PrintView(HomeAssistantView):
 
         try:
             job = await _submit(
-                live, filename=filename, document=buf, document_format=fmt
+                live, filename=filename, document=buf, document_format=fmt,
+                copies=copies, sides=sides
             )
         except SubmitError as exc:
             return self.json_message(str(exc), status_code=exc.status)
         return self.json(job)
+
+
+class CapabilitiesView(HomeAssistantView):
+    """Authenticated, entity-scoped options for dashboard users; no job required."""
+
+    url = "/api/ipp_print/capabilities"
+    name = "api:ipp_print:capabilities"
+    requires_auth = True
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self._hass = hass
+
+    async def get(self, request: web.Request) -> web.Response:
+        if set(request.query) - {"entity_id"} or len(request.query.getall("entity_id", [])) > 1:
+            return self.json_message("invalid capability query", status_code=400)
+        entity_id = request.query.get("entity_id")
+        if entity_id is not None and not entity_id.startswith("sensor."):
+            return self.json_message("target is not an IPP Print sensor", status_code=404)
+        try:
+            live = _entry_for_entity(self._hass, entity_id)
+        except SubmitError as exc:
+            return self.json_message(str(exc), status_code=exc.status)
+        if live is None:
+            return self.json_message("integration not configured", status_code=503)
+        cache = live["capability_cache"]
+        live["printer_info"] = await cache.async_get()
+        if cache.closed:
+            return self.json_message("integration unloaded", status_code=503)
+        if not entity_id:
+            entry_id = next(key for key, data in _live_entries(self._hass).items() if data is live)
+            entity_id = next((entry.entity_id for entry in er.async_entries_for_config_entry(
+                er.async_get(self._hass), entry_id
+            ) if entry.domain == "sensor"), None)
+        return self.json(capability_snapshot(cache, entity_id))
 
 
 class CancelView(HomeAssistantView):

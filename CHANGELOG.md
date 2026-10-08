@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.6.0] - 2026-10-08
+
+### Added
+- Authenticated, entity-scoped capability API with supported formats, binding
+  modes, copy limits, request fields and fresh/stale/unknown cache metadata.
+- Optional copies and sides on multipart uploads, using the same validation,
+  target routing and fresh default-paper behavior as the print_file service.
+- On-demand capability refresh after 15 minutes, serialized reads, five-minute
+  failure backoff and a bounded fetch time; no background capability polling.
+
+### Fixed
+- Reject fractional/boolean/coerced copy counts in both upload and service calls.
+  Duplicate, unknown and oversized multipart fields never submit a print.
+- Ignore invalid advertised copy ranges instead of treating them as device limits.
+
 ## [0.5.0] - 2026-10-08
 
 ### Changed

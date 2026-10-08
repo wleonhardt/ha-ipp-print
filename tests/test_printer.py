@@ -289,3 +289,12 @@ async def test_closed_client_cannot_reopen_session():
     await client.async_close()
     with pytest.raises(p.IppError, match="unloaded"):
         await client._get_session()
+
+
+@pytest.mark.parametrize("low,high", [(0, 99), (-1, 9), (10, 1)])
+def test_invalid_advertised_copy_range_stays_unknown(low, high):
+    group = (
+        bytes([PRINTER_GROUP])
+        + p._attr(p.TAG_RANGE_OF_INTEGER, b"copies-supported", p._int_value(low) + p._int_value(high))
+    )
+    assert p.parse_printer_attrs_response(_resp(0, group)).copies_max is None

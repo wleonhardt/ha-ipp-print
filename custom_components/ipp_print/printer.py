@@ -415,9 +415,9 @@ def parse_printer_attrs_response(data: bytes) -> PrinterInfo:
     copies = attrs.get("copies-supported") or []
     copies_max: int | None = None
     for v in copies:
-        if isinstance(v, tuple):
+        if isinstance(v, tuple) and len(v) == 2 and 1 <= v[0] <= v[1] <= 2**31 - 1:
             copies_max = max(copies_max or 0, v[1])
-        elif isinstance(v, int):
+        elif type(v) is int and 1 <= v <= 2**31 - 1:
             copies_max = max(copies_max or 0, v)
     return PrinterInfo(
         name=_first_str(attrs, "printer-name"),

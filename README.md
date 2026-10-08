@@ -30,7 +30,8 @@ HA entities, per-job progress, or a clean UI.
 
 `ipp_print` talks IPP directly:
 
-- `Get-Printer-Attributes` once at setup (identity, supported formats, duplex)
+- `Get-Printer-Attributes` at setup and through a shared on-demand capability
+  cache; explicit sides jobs also read current default paper before submission
 - `Print-Job` to submit
 - `Get-Job-Attributes` to poll progress (every 1.5 s while a job is active)
 - `Cancel-Job` for the cancel button
@@ -126,8 +127,8 @@ The card shares the scan card's neutral theme surface, native icons, readable
 text, accessible buttons and sizing. Existing card types and explicit titles
 continue to work. Add each card directly to a Sections grid for native sizing,
 or keep your horizontal stack. See [paired Sections example](examples/dashboard-sections.yaml).
-Copies and duplex remain available through the print service; upload-card
-controls for them will follow the upload API extension.
+Copies and duplex are available through the print service and upload API;
+upload-card settings controls are the next phase.
 
 ## Sensor + events
 
@@ -237,8 +238,9 @@ auth token; any authenticated user may call them):
 ### `POST /api/ipp_print/print`
 
 Multipart form-data, field name `file` (PDF, JPEG, or PNG — identified from
-content). Send exactly one `file` field and at most one `entity_id` field;
-unexpected or duplicate fields are rejected with 400. With several printers
+content). Send exactly one `file` field and at most one each of `entity_id`,
+`copies` and `sides`. Metadata is limited to 512 bytes per field; unexpected
+or duplicate fields are rejected with 400. With several printers
 configured, add a text field `entity_id`
 holding the target printer's job sensor (`400` without it). Returns:
 
@@ -252,7 +254,40 @@ Example with a long-lived access token:
 curl -H "Authorization: Bearer $HA_TOKEN" -F file=@doc.pdf http://homeassistant.local:8123/api/ipp_print/print
 # several printers:
 curl -H "Authorization: Bearer $HA_TOKEN" -F entity_id=sensor.office_current_job -F file=@doc.pdf http://homeassistant.local:8123/api/ipp_print/print
+# explicit copies and binding:
+curl -H "Authorization: Bearer $HA_TOKEN" -F copies=2 -F sides=two-sided-long-edge -F file=@doc.pdf http://homeassistant.local:8123/api/ipp_print/print
 ```
+
+Copies must be ASCII decimal integers from 1 to 99, within the printer's
+advertised maximum. Fractions, booleans, signs and whitespace are rejected.
+Sides accepts `one-sided`, `two-sided-long-edge` or `two-sided-short-edge`.
+Omitting either leaves that option to the printer. An explicit sides request
+reads current paper defaults immediately before submission; if that read fails,
+no job is submitted. This validation is shared with `ipp_print.print_file`.
+
+### `GET /api/ipp_print/capabilities?entity_id=sensor.office_current_job`
+
+Authenticated and readable by ordinary dashboard users while no job is active.
+The target is optional with one loaded printer, required with several.
+Returns `schema_version: 1`, the resolved sensor, bounded identity,
+`supported.formats`, `supported.sides`, `supported.copies_max`,
+`request_options` and integration `limits`. Supported formats are restricted
+to the upload formats (PDF/JPEG/PNG); automatic format detection is respected.
+No printer address, credentials or raw IPP attributes are exposed.
+
+The per-device cache refreshes on demand after 15 minutes, serializes simultaneous
+reads and backs off failures for five minutes. Fetches are bounded to 15 seconds.
+`status` is `fresh`, `stale` (last success retained) or `unknown`, with
+`fetched_at`, `attempted_at`, `refresh_after_seconds` and a generic
+`refresh_failed` error. This describes capability freshness, not whether the
+printer is currently online. `null` means unreported; an empty supported list
+means no integration-supported choices were advertised. Job sensor attributes
+remain unchanged and capability reads do not create recorder updates.
+
+Check schema/version and accepted fields before exposing options; older releases
+return 404 for this endpoint. Unknown targets return 404, malformed/ambiguous
+queries 400 and an unloaded integration 503. See the
+[capability contract](plans/decisions/2026-10-08-capability-api.md).
 
 ### `POST /api/ipp_print/cancel`
 
