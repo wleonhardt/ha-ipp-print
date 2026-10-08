@@ -33,6 +33,12 @@ semver-ish `0.x`.
 - Use the probed UUID at discovery confirmation; distinguish CUPS queues
   by path and check effective options when detecting duplicate endpoints.
 
+- Avoid a second full-document allocation during IPP submission using a
+  sized payload with backpressure. Preserve Content-Length for firmware compatibility.
+- Bound printer responses to 1 MiB and reject HTTP redirects instead of
+  implicitly replaying jobs against another endpoint.
+- Update the vulnerable test-only `source-map-js` dependency; audit is clean.
+
 ### Added
 - `config_entry_id` on job events identifies the printer when job IDs overlap.
 

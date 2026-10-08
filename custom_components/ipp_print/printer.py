@@ -30,6 +30,26 @@ STATUS_NOT_FOUND = 0x0406
 # status polls should fail fast.
 PRINT_TIMEOUT = 300.0
 POLL_TIMEOUT = 10.0
+MAX_RESPONSE_BYTES = 1024 * 1024
+DOCUMENT_CHUNK_BYTES = 64 * 1024
+
+
+class _IppDocumentPayload(aiohttp.payload.Payload):
+    """Sized IPP header + document, without copying the whole document."""
+
+    def __init__(self, header: bytes, document: bytes | bytearray) -> None:
+        super().__init__(document, content_type="application/ipp")
+        self._header = header
+        self._document = memoryview(document)
+        self._size = len(header) + len(document)
+
+    def decode(self, encoding: str = "utf-8", errors: str = "strict") -> str:
+        raise TypeError("IPP document payload is binary")
+
+    async def write(self, writer) -> None:
+        await writer.write(self._header)
+        for offset in range(0, len(self._document), DOCUMENT_CHUNK_BYTES):
+            await writer.write(self._document[offset:offset + DOCUMENT_CHUNK_BYTES])
 
 
 class IppError(Exception):
@@ -541,7 +561,9 @@ class PrinterClient:
                 await self._session.close()
                 self._session = None
 
-    async def _post_ipp(self, body: bytes, *, timeout: float | None = None) -> bytes:
+    async def _post_ipp(
+        self, body: bytes | aiohttp.payload.Payload, *, timeout: float | None = None
+    ) -> bytes:
         auth = (
             aiohttp.BasicAuth(self._user, self._password)
             if self._password
@@ -557,16 +579,17 @@ class PrinterClient:
             headers={"Content-Type": "application/ipp"},
             auth=auth,
             timeout=client_timeout,
+            allow_redirects=False,
         ) as resp:
-            content = await resp.read()
             if resp.status != 200:
-                _LOGGER.warning(
-                    "Printer returned HTTP %s for IPP request: %s",
-                    resp.status,
-                    content[:200],
-                )
+                _LOGGER.warning("Printer returned HTTP %s for IPP request", resp.status)
                 raise IppHttpError(resp.status)
-            return content
+            content = bytearray()
+            async for chunk in resp.content.iter_chunked(DOCUMENT_CHUNK_BYTES):
+                if len(content) + len(chunk) > MAX_RESPONSE_BYTES:
+                    raise IppError("printer response exceeds the 1 MiB limit")
+                content.extend(chunk)
+            return bytes(content)
 
     async def print_job(
         self,
@@ -582,12 +605,12 @@ class PrinterClient:
             user=self._user,
             job_name=job_name,
             document_format=document_format,
-            document=document,
+            document=b"",
             copies=copies,
             sides=sides,
         )
         return parse_print_job_response(
-            await self._post_ipp(req, timeout=PRINT_TIMEOUT)
+            await self._post_ipp(_IppDocumentPayload(req, document), timeout=PRINT_TIMEOUT)
         )
 
     async def get_job_attrs(self, job_id: int) -> JobAttributes | None:
