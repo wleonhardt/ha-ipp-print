@@ -1,0 +1,14 @@
+{
+  "contract": 1,
+  "viewports": [320, 390, 768],
+  "themes": ["light", "dark", "custom"],
+  "cases": [
+    { "id": "idle", "scan": { "state": "idle", "attributes": { "scan_id": null } }, "print": { "state": "idle", "attributes": { "job_id": null } } },
+    { "id": "selected", "filename": "Annual household documents for October 2026.pdf", "scan": { "state": "idle", "attributes": { "scan_id": null } }, "print": { "state": "idle", "attributes": { "job_id": null } } },
+    { "id": "running", "scan": { "state": "processing", "attributes": { "scan_id": "fixture", "pages_done": 3, "source": "Feeder" } }, "print": { "state": "processing", "attributes": { "job_id": 42, "pages_done": 3, "pages_total": 6 } } },
+    { "id": "reload", "scan": { "state": "awaiting-back-sides", "attributes": { "scan_id": "fixture", "front_pages": 3, "pages_done": 3, "duplex_mode": "manual" } }, "print": { "state": "processing-stopped", "attributes": { "job_id": 42, "state_reasons": "Load paper in the tray" } } },
+    { "id": "error", "scan": { "state": "failed", "attributes": { "scan_id": "fixture", "error": "The feeder is empty. Load your document and try again. Check that the paper is seated in the feeder before starting another scan." } }, "print": { "state": "aborted", "attributes": { "job_id": 42, "state_reasons": "The printer is out of paper" } } },
+    { "id": "complete", "scan": { "state": "completed", "attributes": { "scan_id": "fixture", "pages_done": 6, "file_url": "/api/escl_scan/file/fixture" } }, "print": { "state": "completed", "attributes": { "job_id": 42, "pages_done": 6 } } },
+    { "id": "unavailable", "scan": { "state": "unavailable", "attributes": {} }, "print": { "state": "unknown", "attributes": { "job_id": 42 } } }
+  ]
+}
