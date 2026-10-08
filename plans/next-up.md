@@ -8,8 +8,8 @@
 
 - 2026-10-08 — Thorough code review and v0.4.1 live validation complete.
   [Findings, repairs, verification, and remaining design choices](2026-10-08-code-review.md).
-  135 Python tests / 21 card tests pass; all six hosted validation jobs passed
-  the initial duplex fix, with final refresh validation required before tagging. Live service/card
+  135 Python tests / 21 card tests and all six final hosted validation jobs pass.
+  Live service/card
   jobs completed; cancel and seven rejection checks passed on HP M283fdw / HA
   2026.9.4. Duplex failure repaired; controlled retry confirmed front/back on one
   sheet. Patched HA service job 363 also confirmed on one sheet. Paper size is

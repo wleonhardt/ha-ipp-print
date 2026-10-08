@@ -15,6 +15,9 @@ refreshed before each explicit sides job; no user-supplied size required.
 - [Validation of the duplex fix](https://github.com/wleonhardt/ha-ipp-print/actions/runs/37826611437)
   also passed all six jobs.
 
+- [Final refresh validation](https://github.com/wleonhardt/ha-ipp-print/actions/runs/37828005048)
+  passed all six jobs on `f073652`.
+
 ## Environment and deployment
 
 - Home Assistant 2026.9.4 / Python 3.14; HP Color LaserJet MFP M283fdw.
@@ -89,6 +92,12 @@ Temporary PDFs were removed after the final service test. The post-patch restart
 loaded the new media-default capability in diagnostics. Job 363 completed through
 the HA service; sensor returned to idle, its test subscription closed, and no
 IPP Print warnings/errors appeared in the fresh HA log.
+
+After the final refresh change, a fresh live capability query returned Letter
+(`na_letter_8.5x11in`). A non-printing Validate-Job built with the production
+builder, that default media, copies 1, long-edge duplex, and attribute fidelity
+returned successful-ok without creating a job. No additional pages were printed.
+Final source was deployed to HA and core restart completed successfully.
 
 ## Limits
 
