@@ -157,6 +157,30 @@ def test_build_print_job_sends_explicit_single_copy():
     assert attrs["copies"] == [1]
 
 
+@pytest.mark.parametrize("settings", [
+    {"copies": 1}, {"sides": "two-sided-long-edge"},
+    {"media": "na_letter_8.5x11in"},
+])
+def test_explicit_settings_require_fidelity_in_operation_group(settings):
+    req = p.build_print_job(
+        printer_uri="ipp://h/ipp/print", user="u", job_name="a",
+        document_format="application/pdf", document=b"", **settings,
+    )
+    fidelity = p._attr(p.TAG_BOOLEAN, b"ipp-attribute-fidelity", b"\x01")
+    assert fidelity in req
+    assert req.index(fidelity) < req.index(bytes([p.TAG_JOB_ATTRS]), req.index(fidelity))
+
+
+def test_default_print_omits_fidelity_and_media():
+    req = p.build_print_job(
+        printer_uri="ipp://h/ipp/print", user="u", job_name="a",
+        document_format="application/pdf", document=b"",
+    )
+    _, attrs = p.parse_response(req)
+    assert "ipp-attribute-fidelity" not in attrs
+    assert "media" not in attrs
+
+
 def test_build_get_printer_attrs_requested_1setof():
     req = p.build_get_printer_attrs(printer_uri="ipp://h/ipp/print", user="u")
     assert int.from_bytes(req[2:4], "big") == p.OP_GET_PRINTER_ATTRS
@@ -178,6 +202,7 @@ def test_parse_printer_attrs():
         + p._attr(p.TAG_KEYWORD, b"", b"two-sided-long-edge")
         + p._attr(p.TAG_RANGE_OF_INTEGER, b"copies-supported", p._int_value(1) + p._int_value(99))
         + p._attr(p.TAG_BOOLEAN, b"color-supported", b"\x01")
+        + p._attr(p.TAG_KEYWORD, b"media-default", b"na_letter_8.5x11in")
     )
     info = p.parse_printer_attrs_response(_resp(0x0000, grp))
     assert info.name == "office"
@@ -187,6 +212,8 @@ def test_parse_printer_attrs():
     assert info.formats == ["application/pdf", "image/jpeg"]
     assert info.sides == ["one-sided", "two-sided-long-edge"]
     assert info.copies_max == 99
+    assert info.media_default == "na_letter_8.5x11in"
+    assert info.to_dict()["media_default"] == "na_letter_8.5x11in"
     assert info.supports_format("image/jpeg")
     assert not info.supports_format("image/png")
 

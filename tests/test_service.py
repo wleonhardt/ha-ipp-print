@@ -50,6 +50,49 @@ async def test_print_file_submits_and_returns_job(hass, www):
     kw = pj.call_args.kwargs
     assert kw["document_format"] == "application/pdf"
     assert kw["copies"] == 2 and kw["sides"] == "two-sided-long-edge"
+    assert kw["media"] == "na_letter_8.5x11in"
+
+
+@pytest.mark.parametrize("default_media", [None, "iso_a4_210x297mm"])
+async def test_duplex_uses_advertised_default_media(hass, www, default_media):
+    entry = await _setup(hass)
+    live = hass.data[DOMAIN][entry.entry_id]
+    live["printer_info"].media_default = default_media
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ) as pj, patch.object(JobCoordinator, "_ensure_poll_loop"):
+        await hass.services.async_call(
+            DOMAIN, "print_file", {"path": str(www), "sides": "two-sided-long-edge"},
+            blocking=True,
+        )
+    assert pj.call_args.kwargs["media"] == default_media
+
+
+async def test_default_submission_does_not_override_media(hass, www):
+    await _setup(hass)
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ) as pj, patch.object(JobCoordinator, "_ensure_poll_loop"):
+        await hass.services.async_call(
+            DOMAIN, "print_file", {"path": str(www)}, blocking=True,
+        )
+    assert pj.call_args.kwargs["media"] is None
+
+
+async def test_rejected_settings_do_not_start_tracking(hass, www):
+    await _setup(hass)
+    refused = JobSubmissionResult(
+        ipp_status=0x040B, job_id=None, job_state=None, job_state_name=None, raw=b""
+    )
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=refused)
+    ), patch.object(JobCoordinator, "track") as track:
+        with pytest.raises(HomeAssistantError, match="default paper size"):
+            await hass.services.async_call(
+                DOMAIN, "print_file", {"path": str(www), "sides": "two-sided-long-edge"},
+                blocking=True,
+            )
+    track.assert_not_called()
 
 
 async def test_print_file_rejects_path_outside_allowlist(hass, tmp_path):

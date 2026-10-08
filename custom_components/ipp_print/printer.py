@@ -109,6 +109,7 @@ PRINTER_ATTRS_REQUESTED = (
     b"document-format-supported",
     b"sides-supported",
     b"copies-supported",
+    b"media-default",
 )
 
 # IPP job-state enum values (RFC 8011 §5.3.7).
@@ -147,6 +148,7 @@ class PrinterInfo:
     formats: list[str]  # document-format-supported
     sides: list[str]  # sides-supported
     copies_max: int | None  # upper bound of copies-supported
+    media_default: str | None = None  # explicit default for duplex firmware compatibility
 
     def to_dict(self) -> dict:
         return {
@@ -158,6 +160,7 @@ class PrinterInfo:
             "formats": list(self.formats),
             "sides": list(self.sides),
             "copies_max": self.copies_max,
+            "media_default": self.media_default,
         }
 
     def supports_format(self, fmt: str) -> bool:
@@ -221,6 +224,7 @@ def build_print_job(
     document: bytes | bytearray,
     copies: int | None = None,
     sides: str | None = None,
+    media: str | None = None,
 ) -> bytes:
     # Truncate at a codepoint boundary — a raw byte-slice can split UTF-8.
     job_name_bytes = job_name.encode()[:255].decode("utf-8", "ignore").encode()
@@ -232,6 +236,10 @@ def build_print_job(
             + _attr(
                 TAG_MIME_MEDIA_TYPE, b"document-format", document_format.encode()
             )
+            # Explicit settings must not silently fall back to simplex or
+            # another copy count. Without fidelity, IPP permits substitution.
+            + (_attr(TAG_BOOLEAN, b"ipp-attribute-fidelity", b"\x01")
+               if copies is not None or sides or media else b"")
         ),
     )
     # Job-template attributes live in their own group (RFC 8011 §4.2.1).
@@ -240,6 +248,8 @@ def build_print_job(
         job_attrs += _attr(TAG_INTEGER, b"copies", _int_value(copies))
     if sides:
         job_attrs += _attr(TAG_KEYWORD, b"sides", sides.encode())
+    if media:
+        job_attrs += _attr(TAG_KEYWORD, b"media", media.encode())
     if job_attrs:
         job_attrs = bytes([TAG_JOB_ATTRS]) + job_attrs
     return (
@@ -418,6 +428,7 @@ def parse_printer_attrs_response(data: bytes) -> PrinterInfo:
         formats=_all_str(attrs, "document-format-supported"),
         sides=_all_str(attrs, "sides-supported"),
         copies_max=copies_max,
+        media_default=_first_str(attrs, "media-default"),
     )
 
 
@@ -599,6 +610,7 @@ class PrinterClient:
         document: bytes | bytearray,
         copies: int | None = None,
         sides: str | None = None,
+        media: str | None = None,
     ) -> JobSubmissionResult:
         req = build_print_job(
             printer_uri=self._uri,
@@ -608,6 +620,7 @@ class PrinterClient:
             document=b"",
             copies=copies,
             sides=sides,
+            media=media,
         )
         return parse_print_job_response(
             await self._post_ipp(_IppDocumentPayload(req, document), timeout=PRINT_TIMEOUT)

@@ -19,6 +19,10 @@ async def test_print_payload_content_length_and_connection_reuse(aiohttp_server,
 
     async def ipp(request):
         received.append((dict(request.headers), await request.read()))
+        _, attrs = p.parse_response(received[-1][1])
+        assert attrs["ipp-attribute-fidelity"] == [True]
+        assert attrs["media"] == ["na_letter_8.5x11in"]
+        assert attrs["sides"] == ["two-sided-long-edge"]
         connections.append(request.transport)
         return web.Response(body=response, content_type="application/ipp")
 
@@ -31,12 +35,13 @@ async def test_print_payload_content_length_and_connection_reuse(aiohttp_server,
         for _ in range(2):
             result = await client.print_job(
                 job_name="x.pdf", document_format="application/pdf", document=document,
-                copies=1, sides="one-sided",
+                copies=1, sides="two-sided-long-edge", media="na_letter_8.5x11in",
             )
             assert result.job_id == 7
         expected = p.build_print_job(
             printer_uri=client.printer_uri, user="anonymous", job_name="x.pdf",
-            document_format="application/pdf", document=document, copies=1, sides="one-sided",
+            document_format="application/pdf", document=document, copies=1,
+            sides="two-sided-long-edge", media="na_letter_8.5x11in",
         )
         for headers, body in received:
             assert body == expected

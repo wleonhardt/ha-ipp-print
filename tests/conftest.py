@@ -15,6 +15,7 @@ DEFAULT_PRINTER_INFO = PrinterInfo(
     formats=["application/pdf", "image/jpeg", "image/png"],
     sides=["one-sided", "two-sided-long-edge"],
     copies_max=99,
+    media_default="na_letter_8.5x11in",
 )
 
 

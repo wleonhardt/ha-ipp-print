@@ -393,6 +393,9 @@ async def _submit(
             document=document,
             copies=copies,
             sides=sides,
+            # Some HP firmware rejects duplex when media is implicit even
+            # though media-default is loaded and sides-supported lists it.
+            media=info.media_default if sides and info is not None else None,
         )
     except IppError as exc:
         _LOGGER.warning("IPP submission failed: %s", exc)
@@ -409,6 +412,12 @@ async def _submit(
         ) from exc
 
     if result.ipp_status not in (0x0000, 0x0001, 0x0002):
+        if result.ipp_status == 0x040B:
+            raise SubmitError(
+                "printer refused the requested print settings; check copies, "
+                "sides and the printer's default paper size "
+                "(ipp_status=0x040b)", 502,
+            )
         raise SubmitError(
             f"printer refused job (ipp_status=0x{result.ipp_status:04x})", 502
         )

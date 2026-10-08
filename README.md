@@ -189,6 +189,13 @@ Print a file that lives on the Home Assistant host. The path must be under
 Returns `{job_id, filename, bytes, state}` when called with
 `response_variable`.
 
+Explicit copies/sides require IPP attribute fidelity: the printer must accept
+the requested settings or reject the job, rather than silently substituting
+its defaults. When `sides` is set, the integration also sends the printer's
+advertised default paper size. This fixes HP firmware that ignores duplex
+when paper size is implicit. Load matching paper and reload the integration
+after changing the printer's default paper size.
+
 ```yaml
 automation:
   - alias: Print the scan that just finished
