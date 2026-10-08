@@ -5,7 +5,7 @@ at least one job is non-terminal, then shuts itself off.
 
 Three observable surfaces:
 * `JobCoordinator.current` is the most-recently-active job, mirrored to
-  `sensor.printer_current_job`.
+  the printer's `Current job` sensor.
 * `ipp_print_job_state_changed` events fire on every observed state change.
 * `ipp_print_job_completed` events fire once per terminal transition.
 
@@ -52,9 +52,6 @@ class TrackedJob:
     pages_done: int | None = None
     pages_total: int | None = None
     finished_at: datetime | None = None
-    last_seen: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
     cancel_requested: bool = False
     fail_count: int = 0  # consecutive poll failures
     operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -231,7 +228,6 @@ class JobCoordinator:
             else attrs.media_sheets_completed
         )
         job.pages_total = attrs.impressions_total
-        job.last_seen = datetime.now(timezone.utc)
 
         if attrs.job_state in TERMINAL_JOB_STATES:
             self._mark_terminal(job, attrs.job_state_name, attrs.job_state_reasons)

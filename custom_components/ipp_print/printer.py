@@ -427,7 +427,7 @@ def _all_str(attrs: dict, key: str) -> list[str]:
 
 def _first_int(attrs: dict, key: str) -> int | None:
     for v in attrs.get(key) or []:
-        if isinstance(v, int):
+        if type(v) is int:
             return v
     return None
 

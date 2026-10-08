@@ -1,4 +1,5 @@
 """Shared fixtures."""
+from copy import deepcopy
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -37,6 +38,6 @@ def printer_attrs():
     """Setup probes the printer; answer with a canned PrinterInfo."""
     with patch(
         "custom_components.ipp_print.printer.PrinterClient.get_printer_attrs",
-        new=AsyncMock(return_value=DEFAULT_PRINTER_INFO),
+        new=AsyncMock(return_value=deepcopy(DEFAULT_PRINTER_INFO)),
     ) as mock:
         yield mock

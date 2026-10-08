@@ -214,6 +214,8 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                 # may omit UUID or advertise an outdated one.
                 await self.async_set_unique_id(_unique_id(info, self._discovered))
                 self._abort_if_unique_id_configured()
+                if self._endpoint_configured(self._discovered):
+                    return self.async_abort(reason="already_configured")
                 return self.async_create_entry(
                     title=_title(info, self._discovered[CONF_HOST])
                     if info and (info.info or info.make_and_model or info.name)
