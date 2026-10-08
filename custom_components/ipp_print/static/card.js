@@ -549,6 +549,18 @@ function _ljpHealOne(err) {
     }
   }
   _LJP_HEALED.add(err);
+  // Let HA rebuild its owned element, not just the DOM node. Otherwise it
+  // keeps pushing hass to the error and may reinsert it on visibility updates.
+  if (parent?.tagName === 'HUI-CARD' && parent._element === err
+      && parent.config?.type === 'custom:' + TAG && typeof parent.load === 'function') {
+    try {
+      parent.load();
+      return;
+    } catch {
+      _LJP_HEALED.delete(err);
+      return;
+    }
+  }
   // If the parent hui-card already has a real instance of our element
   // (Lovelace's own whenDefined() callback may have inserted one alongside
   // the error card), just remove the error card sibling. Otherwise replace

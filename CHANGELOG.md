@@ -14,6 +14,8 @@ semver-ish `0.x`.
 - Default title is Print. Existing explicit titles and card types remain valid.
 
 ### Fixed
+- Recover slow-loading cards through Home Assistant's card wrapper so later
+  state updates cannot reinsert a stale Configuration error beside the card.
 - Prevent repeated submissions and file changes while a print is active.
 - Release staged files after acceptance or an ambiguous submission. Explain
   that the printer queue must be checked before retrying; known validation

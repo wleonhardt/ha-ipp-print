@@ -12,6 +12,39 @@ const CARD_SRC = readFileSync(
   'utf8',
 );
 const TAG = 'ipp-print-upload-card';
+test('healing rebuilds the HA-owned card so state updates cannot restore the error', async () => {
+  const win = boot();
+  const doc = win.document;
+  const host = doc.querySelector('home-assistant');
+  host.hass = { states: {} };
+  const wrapper = doc.createElement('hui-card');
+  wrapper.config = wrapper._elementConfig = { type: 'custom:' + TAG, title: 'Recovered' };
+  const error = doc.createElement('hui-error-card');
+  error._config = { type: 'error', message: "Custom element doesn't exist: " + TAG + '.' };
+  wrapper._element = error;
+  wrapper.appendChild(error);
+  let loads = 0;
+  wrapper.load = () => {
+    loads++;
+    const replacement = doc.createElement(TAG);
+    replacement.setConfig(wrapper.config);
+    replacement.hass = host.hass;
+    wrapper._element.replaceWith(replacement);
+    wrapper._element = replacement;
+  };
+  host.appendChild(wrapper);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(loads, 1);
+  assert.equal(wrapper._element.localName, TAG);
+  assert.equal(wrapper.querySelector(TAG), wrapper._element);
+  assert.equal(wrapper._element.shadowRoot.querySelector('.title').textContent, 'Recovered');
+  // HA updates and shows its stored element, not whichever node is in the DOM.
+  const nextHass = { states: {} };
+  wrapper._element.hass = nextHass;
+  if (!wrapper._element.parentElement) wrapper.appendChild(wrapper._element);
+  assert.equal(wrapper.children.length, 1);
+  assert.equal(wrapper.querySelector('hui-error-card'), null);
+});
 const SENSOR = 'sensor.printer_current_job';
 
 const windows = new Set();
