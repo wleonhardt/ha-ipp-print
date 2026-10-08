@@ -1,6 +1,7 @@
 # Shared scan and print card rollout
 
-Status: planned, 2026-10-08. Implementation has not started.
+Status: in-progress, 2026-10-08. Phase 1 implemented for v0.5.0; release/live
+gates remain. See the canonical validation record linked from `next-up.md`.
 
 Use the same visual and interaction contract as ha-escl-scan: neutral Home
 Assistant surfaces, one primary action, a visible Two-sided setting and optional
@@ -28,7 +29,8 @@ records the rationale and reference designs. Printer baseline: v0.4.1 (`764fe71`
 
 ## Printer implementation checklist
 
-- [ ] Phase 0 contract and fixtures adopted; host experiment result recorded.
+- [x] Phase 0 contract and fixtures adopted; current-host experiment recorded.
+  Minimum-version runtime and physical Android checks remain documented gates.
 - [ ] Phase 1 staging and shared mobile layout shipped.
 - [ ] Phase 2 capability metadata and upload copies/sides shipped.
 - [ ] Phase 3 settings and matching visual editor shipped.

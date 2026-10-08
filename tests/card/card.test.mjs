@@ -77,7 +77,7 @@ test('registers the element, card-picker entry, and stub config', () => {
   const win = boot();
   const C = win.customElements.get(TAG);
   assert.ok(C, 'custom element defined');
-  assert.equal(C.getStubConfig().title, 'Print PDF');
+  assert.equal(C.getStubConfig().title, 'Print');
   const entry = win.customCards.find((c) => c.type === TAG);
   assert.ok(entry);
   assert.equal(entry.preview, true);
@@ -409,4 +409,136 @@ test('a pending cancel for an older job cannot block cancellation of the next jo
   resolvers[1](jsonResponse({ ok: true }));
   await newCancel;
   assert.equal(el._cancelPending, null);
+});
+
+test('file selection stages locally and Print submits once with file changes locked', async () => {
+  const win = boot();
+  const el = mount(win);
+  let respond;
+  const { hass, calls } = makeHass(win, { fetchImpl: () => new Promise(resolve => { respond = resolve; }) });
+  el.hass = hass;
+  const document = file(win, 'report.pdf', 'application/pdf');
+  el._pick();
+  const input = win.document.querySelector('input[type=file]');
+  assert.ok(input?.isConnected);
+  Object.defineProperty(input, 'files', { value: [document] });
+  input.dispatchEvent(new win.Event('change'));
+  assert.equal(calls.fetch.length, 0);
+  assert.equal(el._stagedFile, document);
+  assert.equal(el._fileNameEl.textContent, 'report.pdf');
+  assert.equal(el._primaryEl.textContent, 'Print');
+  el._primaryEl.click();
+  el._primaryEl.click();
+  el.shadowRoot.querySelector('.clear').click();
+  el._stageFile(file(win, 'other.pdf', 'application/pdf'));
+  assert.equal(el._stagedFile, document);
+  assert.equal(calls.fetch.length, 1);
+  assert.equal(calls.fetch[0].init.body.get('file').name, 'report.pdf');
+  respond(jsonResponse({ job_id: 42, filename: 'report.pdf' }));
+  await tick();
+  assert.equal(el._stagedFile, null, 'release local file after acceptance');
+  assert.equal(el._primaryEl.disabled, true, 'active print blocks another submission');
+  el._pick();
+  assert.equal(win.document.querySelector('input[type=file]'), null);
+  calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 42 } } } });
+  assert.equal(el._primaryEl.disabled, false);
+  assert.equal(el._primaryEl.textContent, 'Choose file');
+});
+
+test('canceling replacement preserves selection; Clear discards without uploading', () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win);
+  el.hass = hass;
+  const document = file(win, 'original.pdf', 'application/pdf');
+  el._stageFile(document);
+  el.shadowRoot.querySelector('.replace').click();
+  win.document.querySelector('input[type=file]').dispatchEvent(new win.Event('cancel'));
+  assert.equal(el._stagedFile, document);
+  assert.equal(win.document.querySelector('input[type=file]'), null);
+  assert.equal(el._primaryEl.textContent, 'Print');
+  el.shadowRoot.querySelector('.clear').click();
+  assert.equal(el._stagedFile, null);
+  assert.equal(el._primaryEl.textContent, 'Choose file');
+  assert.equal(calls.fetch.length, 0);
+});
+
+test('invalid replacement retains a valid staged document', () => {
+  const win = boot();
+  const el = mount(win);
+  const document = file(win, 'valid.pdf', 'application/pdf');
+  el._stageFile(document);
+  el._stageFile(file(win, 'bad.txt', 'text/plain'));
+  assert.equal(el._stagedFile, document);
+  assert.match(el._statusEl.textContent, /Pick a PDF/);
+  assert.equal(el._fileNameEl.textContent, 'valid.pdf');
+});
+
+test('known validation rejection retains staged file; uncertain submission clears it', async () => {
+  for (const [response, retained] of [
+    [jsonResponse({ message: 'printer does not accept image/png' }, 415), true],
+    [jsonResponse({ message: 'gateway timeout' }, 504), false],
+    [jsonResponse({ ok: true }), false],
+    [new Error('connection lost'), false],
+  ]) {
+    const win = boot();
+    const el = mount(win);
+    const { hass, calls } = makeHass(win, { fetchImpl: async () => {
+      if (response instanceof Error) throw response;
+      return response;
+    } });
+    el.hass = hass;
+    const document = file(win, 'test.png', 'image/png');
+    el._stageFile(document);
+    await el._upload(document);
+    assert.equal(el._stagedFile, retained ? document : null);
+    assert.equal(calls.fetch.length, 1);
+    assert.equal(el._primaryEl.disabled, false);
+    if (!retained) assert.match(el._statusEl.textContent, /Check the printer queue/);
+  }
+});
+
+test('card surface and child keyboard events do not open a file picker', () => {
+  const win = boot();
+  const el = mount(win);
+  const card = el.shadowRoot.querySelector('ha-card');
+  assert.equal(card.getAttribute('role'), null);
+  card.click();
+  card.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  el._primaryEl.dispatchEvent(new win.KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  assert.equal(win.document.querySelector('input[type=file]'), null);
+  assert.equal(el._cancelEl.tagName, 'BUTTON');
+});
+
+test('disconnect cleans an open picker and a lost job tracker unlocks selection', async () => {
+  const win = boot();
+  const el = mount(win);
+  el._pick();
+  el.remove();
+  assert.equal(win.document.querySelector('input[type=file]'), null);
+  win.document.body.appendChild(el);
+  const { hass, calls } = makeHass(win);
+  el.hass = hass;
+  el._activeJobId = 8;
+  await el._trackPrintProgress(SENSOR);
+  calls.subscribe[0].cb({ r: [SENSOR] });
+  assert.equal(el._activeJobId, null);
+  assert.equal(el._primaryEl.disabled, false);
+  assert.match(el._statusEl.textContent, /sensor unavailable/);
+});
+
+test('native lifecycle hooks close an established subscription and reconnect once', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win);
+  el.hass = hass;
+  el._activeJobId = 9;
+  el._activeSensorId = SENSOR;
+  await el._trackPrintProgress(SENSOR);
+  assert.equal(calls.subscribe.length, 1);
+  el.remove();
+  assert.equal(calls.unsubscribed, true);
+  win.document.body.appendChild(el);
+  await tick();
+  assert.equal(calls.subscribe.length, 2);
 });

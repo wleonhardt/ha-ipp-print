@@ -3,7 +3,7 @@
 //
 // Type:  custom:ipp-print-upload-card
 // Options:
-//   title:   string, default "Print PDF"
+//   title:   string, default "Print"
 //   entity:  job sensor of the printer to print to. Optional with one
 //            printer configured; required once there are several.
 //
@@ -19,15 +19,20 @@ const TAG = 'ipp-print-upload-card';
 const ACCEPTED_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
 if (!customElements.get(TAG)) {
-  customElements.define(TAG, class extends HTMLElement {});
+  // Lifecycle callbacks are captured at define(), unlike ordinary methods.
+  // Forward them so the implementation can still follow early registration.
+  customElements.define(TAG, class extends HTMLElement {
+    connectedCallback() { this._connected?.(); }
+    disconnectedCallback() { this._disconnected?.(); }
+  });
 }
 
 const C = customElements.get(TAG);
 
-C.getStubConfig = function () { return { title: 'Print PDF' }; };
+C.getStubConfig = function () { return { title: 'Print' }; };
 
 C.prototype.setConfig = function (config) {
-  this._config = Object.assign({ title: 'Print PDF' }, config || {});
+  this._config = Object.assign({ title: 'Print' }, config || {});
   this._render();
   // _render is one-shot; apply config changes (card editor) directly.
   if (this._titleEl) this._titleEl.textContent = this._config.title;
@@ -39,119 +44,121 @@ Object.defineProperty(C.prototype, 'hass', {
   configurable: true,
 });
 
-C.prototype.getCardSize = function () { return 2; };
+C.prototype.getCardSize = function () { return 3; };
+C.prototype.getGridOptions = function () { return { columns: 6, rows: 4, min_columns: 6, min_rows: 4 }; };
 
 C.prototype._render = function () {
   if (this._rendered) return;
   const root = this.attachShadow({ mode: 'open' });
   root.innerHTML = `
     <style>
-      :host {
-        display: block;
-        /* Set up a size-based container so children can adapt to the
-           card's own width — covers the case where a horizontal-stack
-           shrinks each card narrow even on a wide viewport. */
-        container-type: inline-size;
-      }
-      /* Theme-driven: accent from --primary-color, surfaces/text from the
-         active HA theme, so the card reads correctly on light and dark. */
+      /* Shared document-card contract v1. Keep this base identical in both cards. */
+      :host { display: block; height: 100%; }
+      [hidden] { display: none !important; }
       ha-card {
-        padding: 18px 14px;
-        min-height: 130px;
-        display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-        gap: 6px;
-        cursor: pointer;
-        transition: transform .08s ease, box-shadow .15s ease;
-        box-sizing: border-box;
+        box-sizing: border-box; height: 100%; min-height: 200px; padding: 12px;
+        display: flex; flex-direction: column; gap: 8px;
+        color: var(--primary-text-color);
       }
-      ha-card:hover { box-shadow: 0 0 0 2px var(--primary-color); }
-      ha-card:active { transform: scale(.99); }
-      ha-card.busy { cursor: progress; opacity: .85; }
-      .icon { width: 36px; height: 36px; color: var(--primary-color); flex-shrink: 0; }
-      .title { font-weight: 700; font-size: 20px; color: var(--primary-text-color); line-height: 1.1; text-align: center; }
-      .status {
-        font-size: 13px;
-        min-height: 16px;
-        color: var(--secondary-text-color);
-        text-align: center;
-        padding: 0 4px;
-        line-height: 1.3;
-        word-break: break-word;
-      }
-      /* When the card itself is narrow (typically a phone, or a two-card
-         horizontal-stack on a sidebar-split desktop), shrink the title
-         and icon so multi-line status messages like "Printing page 3/7…"
-         don't push the cancel link off the card or collide with the
-         title. Container query fires on the card's own width, not the
-         viewport. */
-      @container (max-width: 260px) {
-        ha-card { padding: 14px 10px; gap: 4px; }
-        .icon { width: 30px; height: 30px; }
-        .title { font-size: 17px; }
-        .status { font-size: 12px; }
-      }
-      @container (max-width: 200px) {
-        .title { font-size: 15px; }
-        .status { font-size: 11px; }
-        .icon { width: 26px; height: 26px; }
-      }
+      .header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .icon { --mdc-icon-size: 24px; width: 24px; height: 24px; color: var(--primary-color); flex: none; }
+      .title { font-size: 16px; font-weight: 500; line-height: 24px; overflow-wrap: anywhere; }
+      .status { color: var(--secondary-text-color); font-size: 14px; line-height: 20px; min-height: 40px; overflow-wrap: anywhere; }
       .status.err { color: var(--error-color); }
-      .status.ok  { color: var(--success-color, var(--primary-color)); }
-      .cancel {
-        font-size: 11px;
-        color: var(--error-color);
-        cursor: pointer;
-        text-decoration: underline;
-        text-underline-offset: 2px;
-        margin-top: -4px;
-        display: none;
+      .status.ok { color: var(--success-color, var(--primary-color)); }
+      .status a { color: inherit; text-underline-offset: 2px; display: inline-flex; align-items: center; min-height: 44px; }
+      .status summary { cursor: pointer; min-height: 44px; }
+      .status details > div { padding-top: 8px; }
+      .controls { min-height: 44px; }
+      .actions { margin-top: auto; }
+      button, select { font: inherit; font-size: 14px; }
+      button {
+        min-height: 44px; padding: 8px 12px; border: 0;
+        border-radius: var(--ha-card-border-radius, 12px);
+        background: var(--secondary-background-color); color: var(--primary-text-color);
+        cursor: pointer; line-height: 20px; box-sizing: border-box;
       }
-      .cancel.show { display: inline; }
-      .cancel:hover { opacity: .8; }
+      button:disabled { opacity: .5; cursor: default; }
+      button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, a:focus-visible {
+        outline: 2px solid var(--primary-color); outline-offset: 2px;
+      }
+      .primary, .cancel { width: 100%; font-weight: 500; }
+      .cancel { display: none; color: var(--error-color); }
+      .cancel.show { display: block; }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+      /* End shared document-card base. */
+      .file-name { font-size: 14px; line-height: 20px; color: var(--secondary-text-color); overflow-wrap: anywhere; }
+      .file-actions { display: flex; gap: 8px; margin-top: 8px; }
+      .file-actions button { flex: 1; min-width: 0; padding: 8px 4px; }
     </style>
-    <ha-card role="button" tabindex="0">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="17 8 12 3 7 8"/>
-        <line x1="12" y1="3" x2="12" y2="15"/>
-      </svg>
-      <div class="title"></div>
-      <div class="status" aria-live="polite"></div>
-      <div class="cancel" role="button" tabindex="0">Cancel</div>
+    <ha-card>
+      <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div></div>
+      <div class="status" aria-live="polite" aria-atomic="true"></div>
+      <div class="controls">
+        <div class="file-name"></div>
+        <div class="file-actions" hidden><button class="replace" type="button">Replace</button><button class="clear" type="button">Clear</button></div>
+      </div>
+      <div class="actions">
+        <button class="primary" type="button">Choose file</button>
+        <button class="cancel" type="button">Cancel print</button>
+      </div>
     </ha-card>
   `;
   this._card = root.querySelector('ha-card');
   this._titleEl = root.querySelector('.title');
   this._statusEl = root.querySelector('.status');
   this._cancelEl = root.querySelector('.cancel');
+  this._primaryEl = root.querySelector('.primary');
+  this._fileNameEl = root.querySelector('.file-name');
+  this._fileActionsEl = root.querySelector('.file-actions');
   this._titleEl.textContent = this._config.title;
-
-  // Card click → file picker; but cancel button intercepts its own clicks.
-  this._card.addEventListener('click', (ev) => {
-    if (ev.target === this._cancelEl) return;
-    this._pick();
+  this._primaryEl.addEventListener('click', () => {
+    if (this._stagedFile) this._upload(this._stagedFile);
+    else this._pick();
   });
-  this._card.addEventListener('keydown', (ev) => {
-    if (ev.target === this._cancelEl) return;
-    if (ev.key === 'Enter' || ev.key === ' ') {
-      ev.preventDefault();
-      this._pick();
-    }
-  });
-  this._cancelEl.addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    this._cancelJob();
-  });
-  this._cancelEl.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter' || ev.key === ' ') {
-      ev.preventDefault();
-      ev.stopPropagation();
-      this._cancelJob();
-    }
+  this._cancelEl.addEventListener('click', () => this._cancelJob());
+  root.querySelector('.replace').addEventListener('click', () => this._pick());
+  root.querySelector('.clear').addEventListener('click', () => {
+    if (this._busy || this._activeJobId != null) return;
+    this._stagedFile = null;
+    this._setStatus('');
+    this._syncControls();
   });
   this._rendered = true;
+  this._setStatus('');
+  this._syncControls();
+};
+
+C.prototype._syncControls = function () {
+  if (!this._primaryEl) return;
+  const locked = !!this._busy || this._activeJobId != null;
+  this._primaryEl.disabled = locked;
+  this._primaryEl.hidden = !!this._showCancel;
+  this._primaryEl.textContent = this._busy ? 'Submitting…'
+    : this._activeJobId != null ? 'Printing…' : this._stagedFile ? 'Print' : 'Choose file';
+  this._fileNameEl.textContent = this._stagedFile?.name || this._jobFilename || 'PDF or image';
+  this._fileActionsEl.hidden = !this._stagedFile || locked;
+  for (const button of this._fileActionsEl.querySelectorAll('button')) button.disabled = locked;
+};
+
+function fileError(file) {
+  if (!file) return 'Choose a file first.';
+  if (file.size > 50 * 1024 * 1024) return 'File exceeds the 50 MiB limit.';
+  if (!/\.(pdf|jpe?g|png)$/i.test(file.name) && !ACCEPTED_TYPES.has(file.type)) {
+    return 'Pick a PDF, JPEG, or PNG file.';
+  }
+  return null;
+}
+
+C.prototype._stageFile = function (file) {
+  if (this._busy || this._activeJobId != null) return;
+  const error = fileError(file);
+  if (error) { this._setStatus(error, 'err'); return; }
+  this._stopProgress();
+  this._stagedFile = file;
+  this._jobFilename = null;
+  this._setStatus('Ready to print');
+  this._syncControls();
 };
 
 // Self-healed instances may never receive `hass` from lovelace (the parent
@@ -235,16 +242,19 @@ C.prototype._cancelJob = async function () {
 
 C.prototype._setCancelVisible = function (visible) {
   if (!this._cancelEl) return;
+  this._showCancel = !!visible;
   this._cancelEl.classList.toggle('show', !!visible);
+  this._syncControls();
 };
 
 C.prototype._setStatus = function (text, cls = '') {
-  this._statusEl.textContent = text || '';
+  this._statusEl.textContent = text || (this._stagedFile ? 'Ready to print' : 'Choose a document');
   this._statusEl.className = 'status' + (cls ? ' ' + cls : '');
 };
 
 C.prototype._pick = function () {
-  if (this._busy) return;
+  if (this._busy || this._activeJobId != null) return;
+  this._cleanupPicker?.();
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png';
@@ -255,36 +265,30 @@ C.prototype._pick = function () {
   // nothing happens. Insert it hidden, then clean up after pick/cancel.
   input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;pointer-events:none;width:0;height:0;';
   document.body.appendChild(input);
+  let timer;
   const cleanup = () => {
-    try { input.remove(); } catch {}
+    clearTimeout(timer);
+    input.remove();
+    if (this._cleanupPicker === cleanup) this._cleanupPicker = null;
   };
+  this._cleanupPicker = cleanup;
   input.addEventListener('change', () => {
     const file = input.files && input.files[0];
     cleanup();
-    if (!file) {
-      this._setStatus('Choose a file first.', 'err');
-      return;
-    }
-    this._upload(file);
+    if (file) this._stageFile(file);
   }, { once: true });
   // Safety net: if the user cancels the picker, modern browsers fire
   // `cancel` (and no `change`). Clean up so we don't leak inputs.
   input.addEventListener('cancel', cleanup, { once: true });
   // Last-resort GC: if neither event fires within 5 minutes, drop the input.
-  setTimeout(cleanup, 5 * 60 * 1000);
+  timer = setTimeout(cleanup, 5 * 60 * 1000);
   input.click();
 };
 
 C.prototype._upload = async function (file) {
-  if (this._busy) return;
-  if (file.size > 50 * 1024 * 1024) {
-    this._setStatus('File exceeds the 50 MiB limit.', 'err');
-    return;
-  }
-  if (!/\.(pdf|jpe?g|png)$/i.test(file.name) && !ACCEPTED_TYPES.has(file.type)) {
-    this._setStatus('Pick a PDF, JPEG, or PNG file.', 'err');
-    return;
-  }
+  if (this._busy || this._activeJobId != null) return;
+  const error = fileError(file);
+  if (error) { this._setStatus(error, 'err'); return; }
   let sensorId;
   try {
     sensorId = this._sensorId();
@@ -298,11 +302,14 @@ C.prototype._upload = async function (file) {
   this._busy = true;
   this._card.classList.add('busy');
   this._setStatus('Uploading…');
+  this._cleanupPicker?.();
+  this._syncControls();
 
   const form = new FormData();
   if (sensorId) form.append('entity_id', sensorId);
   form.append('file', file, file.name);
 
+  let definitelyRejected = false;
   try {
     // Returns the printer-assigned job-id we then track via the job sensor.
     const resp = await this._authedFetch('/api/ipp_print/print', {
@@ -315,12 +322,19 @@ C.prototype._upload = async function (file) {
       try { body = await resp.json(); } catch { /* keep null */ }
     }
     if (!resp.ok) {
-      const msg = (body && (body.message || body.error)) || `HTTP ${resp.status}`;
-      throw new Error(msg);
+      definitelyRejected = resp.status >= 400 && resp.status < 500 && resp.status !== 408;
+      const msg = [body?.message, body?.error].find(value => typeof value === 'string' && value.trim());
+      throw new Error(msg || `HTTP ${resp.status}`);
     }
-    const name = (body && body.filename) || file.name;
+    if (!Number.isInteger(body?.job_id) || body.job_id <= 0) {
+      throw new Error('The printer did not return a valid job number.');
+    }
+    const name = typeof body.filename === 'string' && body.filename ? body.filename : file.name;
+    this._stagedFile = null;
+    this._jobFilename = name;
     this._activeJobId = body?.job_id ?? null;
     this._activeSensorId = sensorId;
+    this._setCancelVisible(true);
     this._setStatus(`Submitted ✓ ${name}`, 'ok');
     // Subscribe to the job sensor's updates for this job-id.
     this._trackPrintProgress(sensorId).catch((e) => {
@@ -330,10 +344,13 @@ C.prototype._upload = async function (file) {
       }
     });
   } catch (err) {
-    this._setStatus('Submit failed: ' + (err && err.message ? err.message : err), 'err');
+    if (!definitelyRejected) this._stagedFile = null;
+    const guidance = definitelyRejected ? '' : ' Check the printer queue before choosing the file again; it may already have printed.';
+    this._setStatus('Submit failed: ' + (err?.message || err) + guidance, 'err');
   } finally {
     this._busy = false;
     this._card.classList.remove('busy');
+    this._syncControls();
   }
 };
 
@@ -355,11 +372,12 @@ C.prototype._stopProgress = function () {
   }
 };
 
-C.prototype.disconnectedCallback = function () {
+C.prototype._disconnected = function () {
+  this._cleanupPicker?.();
   this._stopProgress();
 };
 
-C.prototype.connectedCallback = function () {
+C.prototype._connected = function () {
   if (this._activeJobId != null && this._activeSensorId) {
     this._trackPrintProgress(this._activeSensorId).catch((err) => {
       console.warn('[ipp-print] progress tracking error', err);
@@ -384,6 +402,7 @@ C.prototype._trackPrintProgress = async function (sensorId) {
     if (isCurrent()) {
       this._unsubProgress = null;
       clearTimeout(this._progressSafety);
+      this._activeJobId = null;
       this._setCancelVisible(false);
     }
   };

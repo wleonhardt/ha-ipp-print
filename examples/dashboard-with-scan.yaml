@@ -7,6 +7,6 @@
 type: horizontal-stack
 cards:
   - type: custom:escl-scan-card
-    title: Scan now
+    title: Scan
   - type: custom:ipp-print-upload-card
-    title: Print PDF
+    title: Print

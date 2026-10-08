@@ -2,11 +2,12 @@
 
 ## Queue
 
-- Shared scan/print card rollout, planned. Start with the shared contract/host
-  experiment, then mobile polish and explicit file staging. Add upload
-  copies/sides before exposing settings; follow with consistent job state,
-  optional native features and bounded activity.
+- Shared scan/print rollout in progress. Phase 0 contract/current-host
+  experiment and Phase 1 implementation ready for v0.5.0 release/install.
+  Physical Android confirmation pending. Next: Phase 2 upload copies/sides
+  and capabilities before Phase 3 settings controls.
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
+  [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
 
 ## Done
 

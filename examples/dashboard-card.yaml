@@ -1,9 +1,9 @@
-# Minimal example: add a Print PDF tile to any dashboard.
+# Minimal example: choose a document, then press Print.
 # After installing the integration, add to any view's cards: list.
 #
 # The card script is registered globally by the integration — you do NOT
 # need a `resources:` block on the dashboard.
 
 type: custom:ipp-print-upload-card
-title: Print PDF
+title: Print
 # entity: sensor.office_current_job   # needed only with several printers configured

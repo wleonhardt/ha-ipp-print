@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.5.0] - 2026-10-08
+
+### Changed
+- Stage PDF/JPEG/PNG files locally before an explicit Print action. Add Replace
+  and Clear; canceling file selection keeps the previous document.
+- Match the sister scan card with neutral theme surfaces, native icons, readable
+  text, real buttons, keyboard focus and matching Sections sizing.
+- Default title is Print. Existing explicit titles and card types remain valid.
+
+### Fixed
+- Prevent repeated submissions and file changes while a print is active.
+- Release staged files after acceptance or an ambiguous submission. Explain
+  that the printer queue must be checked before retrying; known validation
+  rejections retain the selected file.
+- Reject malformed success responses without a positive integer job ID.
+- Register lifecycle callbacks before defining the custom element, so detached
+  cards actually unsubscribe and remove open file pickers. Unlock file selection
+  when tracking ends because the printer sensor disappears.
+
+### Added
+- Shared card contract, paired fixtures and direct Sections dashboard example.
+
 ## [0.4.1] - 2026-10-08
 
 ### Fixed

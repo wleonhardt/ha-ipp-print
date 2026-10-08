@@ -8,7 +8,8 @@
 Print PDFs and images directly to any IPP-capable network printer (or CUPS
 queue) from Home Assistant. Zeroconf discovery, a `print_file` action for
 automations, a per-job sensor with live page progress, bus events, and a
-one-tap Lovelace card. No driver layer, no filesystem queue.
+Lovelace card with file selection and an explicit Print action. No driver layer,
+no filesystem queue.
 
 > 💡 **Sister project:** for triggering scans on the same multifunction
 > printers, see [**ha-escl-scan**](https://github.com/wleonhardt/ha-escl-scan)
@@ -16,11 +17,7 @@ one-tap Lovelace card. No driver layer, no filesystem queue.
 > eSCL / AirScan instead of IPP.
 
 <p align="center">
-  <img src="assets/card-idle.png" width="320" alt="Idle card" />
-  <img src="assets/card-printing.png" width="320" alt="Printing card" />
-  <br/>
-  <img src="assets/card-complete.png" width="320" alt="Complete card" />
-  <img src="assets/card-failed.png" width="320" alt="Failed card" />
+  <img src="assets/card-pair.png" width="390" alt="Matching scan and print cards with a Two-sided switch and explicit actions" />
 </p>
 
 ## Why this exists
@@ -107,7 +104,7 @@ It also appears in the card picker as **IPP Print Upload**.
 
 ```yaml
 type: custom:ipp-print-upload-card
-title: Print PDF                       # optional, defaults to "Print PDF"
+title: Print                           # optional, defaults to "Print"
 entity: sensor.office_current_job      # the printer's job sensor; optional with one printer
 ```
 
@@ -115,7 +112,22 @@ With one printer configured the card finds its sensor by itself. With
 several, add one card per printer and set `entity:` to that printer's job
 sensor — the card uploads to the printer that sensor belongs to.
 
-The card follows your active HA theme (`--primary-color` accent).
+Choose a PDF, JPEG or PNG, check its filename, then press **Print**. Selecting a
+file keeps it in your browser until Print is pressed. **Replace** changes the
+selection and **Clear** discards it; canceling the file picker preserves your
+previous selection. File changes and repeated submissions are disabled while
+submitting or following the active print.
+
+The browser releases the selected file after acceptance. If a connection fails
+and submission is uncertain, check the printer queue before choosing the file
+again: it may already have printed. Known validation errors retain the selection.
+
+The card shares the scan card's neutral theme surface, native icons, readable
+text, accessible buttons and sizing. Existing card types and explicit titles
+continue to work. Add each card directly to a Sections grid for native sizing,
+or keep your horizontal stack. See [paired Sections example](examples/dashboard-sections.yaml).
+Copies and duplex remain available through the print service; upload-card
+controls for them will follow the upload API extension.
 
 ## Sensor + events
 
