@@ -2,7 +2,11 @@
 
 ## Queue
 
-(empty)
+- Shared scan/print card rollout, planned. Start with the shared contract/host
+  experiment, then mobile polish and explicit file staging. Add upload
+  copies/sides before exposing settings; follow with consistent job state,
+  optional native features and bounded activity.
+  [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
 
 ## Done
 
