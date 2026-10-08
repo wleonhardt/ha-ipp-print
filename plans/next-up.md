@@ -5,14 +5,20 @@
 - Shared scan/print rollout in progress. Phase 0 contract/current-host
   experiment and Phase 1 released and installed as print v0.5.0 / scan v0.6.0.
   Physical phone loading confirmed. Phase 2 upload copies/sides and capabilities
-  implemented and installed as print v0.6.0 / scan v0.7.0. Live API and print
-  jobs pass; physical four-sheet confirmation and release tags pending.
+  implemented and installed as print v0.6.0 / scan v0.7.0, with subsequent
+  card fixes print v0.6.1 / scan v0.7.1. Live API and print jobs pass; physical four-sheet confirmation and release tags pending.
   Next implementation: Phase 3 settings controls.
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
   [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
   [Phase 2 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-2-validation.md).
 
 ## Done
+
+- 2026-10-08 — v0.6.1 card fix installed: clear the submitted filename when
+  print tracking ends. Initial-completion and stale-update regression checks
+  pass; 180 Python / 29 card tests, Ruff and compileall pass. Browser fixture
+  verifies filename cleanup with the paired scan v0.7.1 download/capability UI.
+
 
 - 2026-10-08 — v0.5.0 paired card release installed with scan v0.6.0. Staged
   files, explicit Print, shared theme styling and Sections sizing. Fixed native

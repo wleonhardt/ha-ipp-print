@@ -327,9 +327,11 @@ test('initial terminal snapshot needs no subscription', async () => {
   });
   el.hass = hass;
   el._activeJobId = 7;
+  el._jobFilename = 'finished.pdf';
   await el._trackPrintProgress(SENSOR);
   assert.equal(calls.subscribe.length, 0);
   assert.match(el._statusEl.textContent, /Print complete/);
+  assert.equal(el._fileNameEl.textContent, 'PDF or image');
 });
 
 test('active and paused jobs remain subscribed beyond the initial safety window', async () => {
@@ -365,11 +367,13 @@ test('previous subscription cannot overwrite the next job', async () => {
   await el._trackPrintProgress(SENSOR);
   const old = calls.subscribe[0].cb;
   el._activeJobId = 8;
+  el._jobFilename = 'next.pdf';
   await el._trackPrintProgress(SENSOR);
   calls.subscribe[1].cb({ a: { [SENSOR]: { s: 'processing', a: { job_id: 8 } } } });
   old({ a: { [SENSOR]: { s: 'completed', a: { job_id: 7 } } } });
   assert.equal(el._statusEl.textContent, 'Printing…');
   assert.equal(el._activeJobId, 8);
+  assert.equal(el._fileNameEl.textContent, 'next.pdf');
 });
 
 test('late cancel response does not overwrite completion', async () => {
@@ -476,6 +480,12 @@ test('file selection stages locally and Print submits once with file changes loc
   calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 42 } } } });
   assert.equal(el._primaryEl.disabled, false);
   assert.equal(el._primaryEl.textContent, 'Choose file');
+  assert.equal(el._fileNameEl.textContent, 'PDF or image');
+  el._stageFile(file(win, 'next.pdf', 'application/pdf'));
+  calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 42 } } } });
+  assert.equal(el._fileNameEl.textContent, 'next.pdf');
+  el.shadowRoot.querySelector('.clear').click();
+  assert.equal(el._fileNameEl.textContent, 'PDF or image', 'finished filename never returns');
 });
 
 test('canceling replacement preserves selection; Clear discards without uploading', () => {

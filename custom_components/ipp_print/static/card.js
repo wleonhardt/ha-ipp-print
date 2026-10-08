@@ -403,6 +403,7 @@ C.prototype._trackPrintProgress = async function (sensorId) {
       this._unsubProgress = null;
       clearTimeout(this._progressSafety);
       this._activeJobId = null;
+      this._jobFilename = null;
       this._setCancelVisible(false);
     }
   };

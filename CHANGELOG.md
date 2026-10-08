@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.6.1] - 2026-10-08
+
+### Fixed
+- Clear the submitted filename when its tracked print job ends, including
+  completion received immediately after submission. Late updates cannot clear
+  the next document's filename, and clearing a new selection cannot revive it.
+
 ## [0.6.0] - 2026-10-08
 
 ### Added
