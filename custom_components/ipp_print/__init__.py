@@ -1,10 +1,12 @@
 """IPP Print — direct document submission to a network printer with per-job state."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 from pathlib import Path
 import re
+import stat
 from typing import Any
 
 from aiohttp import web
@@ -13,6 +15,7 @@ import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -85,11 +88,12 @@ def _safe_filename(filename: str | None, fmt: str = "application/pdf") -> str:
     fallback = f"upload{ext or '.bin'}"
     if not filename:
         return fallback
-    name = Path(filename).name
+    name = Path(filename.replace("\\", "/")).name
     name = _UNSAFE.sub("-", name).strip("-._") or fallback
     if ext and not name.lower().endswith(tuple({ext, ".jpeg"} if ext == ".jpg" else {ext})):
         name = f"{name}{ext}"
-    return name[:120]
+    suffix = Path(name).suffix if ext else ""
+    return name[:-len(suffix)][:120 - len(suffix)] + suffix if suffix else name[:120]
 
 
 def _card_url_sync() -> str:
@@ -124,62 +128,78 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     coordinator = JobCoordinator(hass, client, entry.entry_id)
 
-    # Identity + capabilities. A printer that is off right now must not
-    # block setup (endpoints/service still work once it wakes), so failure
-    # here only degrades device info and format checks until next reload.
-    printer_info: PrinterInfo | None = None
     try:
-        printer_info = await client.get_printer_attrs()
-    except Exception as exc:
-        _LOGGER.warning(
-            "%s: Get-Printer-Attributes failed (%s); device details and "
-            "format checks unavailable until the entry is reloaded",
-            data[CONF_HOST], exc,
+        # Identity + capabilities. A printer that is off right now must not
+        # block setup (endpoints/service still work once it wakes), so failure
+        # here only degrades device info and format checks until next reload.
+        printer_info: PrinterInfo | None = None
+        try:
+            printer_info = await client.get_printer_attrs()
+        except Exception as exc:
+            _LOGGER.warning(
+                "%s: Get-Printer-Attributes failed (%s); device details and "
+                "format checks unavailable until the entry is reloaded",
+                data[CONF_HOST], exc,
+            )
+
+        hass.data.setdefault(DOMAIN, {})
+        hass.data[DOMAIN][entry.entry_id] = {
+            "client": client,
+            "coordinator": coordinator,
+            "printer_info": printer_info,
+        }
+
+        # Views look up the live coordinator/client from hass.data on every
+        # request so options-flow reloads (which build a new coordinator) take
+        # effect without re-registering the URLs.
+        if not hass.data[DOMAIN].get("_views_registered"):
+            hass.http.register_view(PrintView(hass))
+            hass.http.register_view(CancelView(hass))
+            hass.data[DOMAIN]["_views_registered"] = True
+        _LOGGER.info(
+            "%s: endpoints ready at /api/%s/{print,cancel} (printer=%s)",
+            DOMAIN, DOMAIN, data[CONF_HOST],
         )
 
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = {
-        "client": client,
-        "coordinator": coordinator,
-        "printer_info": printer_info,
-    }
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Views look up the live coordinator/client from hass.data on every
-    # request so options-flow reloads (which build a new coordinator) take
-    # effect without re-registering the URLs.
-    if not hass.data[DOMAIN].get("_views_registered"):
-        hass.http.register_view(PrintView(hass))
-        hass.http.register_view(CancelView(hass))
-        hass.data[DOMAIN]["_views_registered"] = True
-    _LOGGER.info(
-        "%s: endpoints ready at /api/%s/{print,cancel} (printer=%s)",
-        DOMAIN, DOMAIN, data[CONF_HOST],
-    )
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Serve the upload card with a content-hash URL so browsers re-fetch
-    # on every edit. Track which URLs we've already registered so reloads
-    # (options change → async_reload) don't re-call register_static_paths
-    # on the same URL — aiohttp rejects duplicate GET routes with
-    # "Added route will never be executed". Old hash URLs stay registered
-    # as orphans for the rest of the HA process lifetime; that's fine
-    # since content-hash URLs are designed to be cache-invalidation keys.
-    card_url = await hass.async_add_executor_job(_card_url_sync)
-    registered = hass.data[DOMAIN].setdefault("_card_urls_registered", set())
-    if card_url not in registered:
-        # cache_headers=True: the URL embeds a content hash, so the browser
-        # may cache forever — a changed card gets a brand-new URL.
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(card_url, str(_CARD_FILE), True)]
+        # Serve the upload card with a content-hash URL so browsers re-fetch
+        # on every edit. Track which URLs we've already registered so reloads
+        # (options change → async_reload) don't re-call register_static_paths
+        # on the same URL — aiohttp rejects duplicate GET routes with
+        # "Added route will never be executed". Old hash URLs stay registered
+        # as orphans for the rest of the HA process lifetime; that's fine
+        # since content-hash URLs are designed to be cache-invalidation keys.
+        card_url = await hass.async_add_executor_job(_card_url_sync)
+        registered = hass.data[DOMAIN].setdefault("_card_urls_registered", set())
+        async with hass.data[DOMAIN].setdefault("_card_registration_lock", asyncio.Lock()):
+            if card_url not in registered:
+                # cache_headers=True: the URL embeds a content hash, so the browser
+                # may cache forever — a changed card gets a brand-new URL.
+                await hass.http.async_register_static_paths(
+                    [StaticPathConfig(card_url, str(_CARD_FILE), True)]
+                )
+                registered.add(card_url)
+        hass.data[DOMAIN][entry.entry_id]["card_url"] = card_url
+        hass.async_create_background_task(
+            _sync_lovelace_resource(hass, card_url), name="ipp_print resource sync"
         )
-        registered.add(card_url)
-    hass.data[DOMAIN][entry.entry_id]["card_url"] = card_url
-    hass.async_create_task(_sync_lovelace_resource(hass, card_url))
 
-    # Reload entry when options change.
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-    return True
+        async def _stop(_event) -> None:
+            await coordinator.async_shutdown()
+            await client.async_close()
+
+        entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _stop))
+
+        # Reload entry when options change.
+        entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        return True
+
+    except BaseException:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        await coordinator.async_shutdown()
+        await client.async_close()
+        raise
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -217,7 +237,6 @@ async def _sync_lovelace_resource(hass: HomeAssistant, card_url: str) -> None:
     collection can't be edited; fall back to add_extra_js_url so the card
     still loads — on the next full page load.
     """
-    import asyncio
     for _ in range(60):
         coll = hass.data.get("lovelace_resources") or (
             hass.data.get("lovelace", {}).get("resources")
@@ -239,28 +258,32 @@ async def _sync_lovelace_resource(hass: HomeAssistant, card_url: str) -> None:
         _LOGGER.debug("lovelace resources read-only (YAML mode); using extra_js_url")
         _add_extra_js_once(hass, card_url)
         return
-    try:
-        items = list(coll.async_items())
-        current_id = None
-        stale_ids: list[str] = []
-        for item in items:
-            url = item.get("url", "")
-            if url == card_url:
-                current_id = item.get("id")
-            elif url.startswith(CARD_URL_PREFIX):
-                stale_ids.append(item.get("id"))
-        for sid in stale_ids:
-            if sid:
-                await coll.async_delete_item(sid)
-                _LOGGER.info("reaped stale lovelace resource %s", sid)
-        if current_id is None:
-            await coll.async_create_item({"res_type": "module", "url": card_url})
-            _LOGGER.info("registered %s in lovelace resources", card_url)
-    except Exception:
-        _LOGGER.exception(
-            "failed to sync lovelace resources; falling back to extra_js_url"
-        )
-        _add_extra_js_once(hass, card_url)
+    async with hass.data[DOMAIN].setdefault("_resource_sync_lock", asyncio.Lock()):
+        try:
+            if not getattr(coll, "loaded", True):
+                await coll.async_load()
+                coll.loaded = True
+            items = list(coll.async_items())
+            current_id = None
+            stale_ids: list[str] = []
+            for item in items:
+                url = item.get("url", "")
+                if url == card_url:
+                    current_id = item.get("id")
+                elif url.startswith(CARD_URL_PREFIX):
+                    stale_ids.append(item.get("id"))
+            for sid in stale_ids:
+                if sid:
+                    await coll.async_delete_item(sid)
+                    _LOGGER.info("reaped stale lovelace resource %s", sid)
+            if current_id is None:
+                await coll.async_create_item({"res_type": "module", "url": card_url})
+                _LOGGER.info("registered %s in lovelace resources", card_url)
+        except Exception:
+            _LOGGER.exception(
+                "failed to sync lovelace resources; falling back to extra_js_url"
+            )
+            _add_extra_js_once(hass, card_url)
 
 
 def _live_entries(hass: HomeAssistant) -> dict[str, dict]:
@@ -402,11 +425,18 @@ async def _submit(
 def _read_file_capped(path: str) -> bytes:
     """Executor helper: read a file, refusing anything over the upload cap."""
     p = Path(path)
-    if p.stat().st_size > MAX_UPLOAD_BYTES:
+    file_stat = p.stat()
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise ValueError(f"{path} is not a regular file")
+    if file_stat.st_size > MAX_UPLOAD_BYTES:
         raise ValueError(
             f"{path} exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit"
         )
-    return p.read_bytes()
+    with p.open("rb") as handle:
+        document = handle.read(MAX_UPLOAD_BYTES + 1)
+    if len(document) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"{path} exceeds the upload limit")
+    return document
 
 
 def _make_print_file_handler(hass: HomeAssistant):
@@ -488,25 +518,36 @@ class PrintView(HomeAssistantView):
             _LOGGER.warning("bad multipart body: %s", exc)
             return self.json_message("invalid multipart body", status_code=400)
 
-        field = None
+        filename_raw: str | None = None
         entity_id: str | None = None
+        seen: set[str] = set()
         buf = bytearray()
-        while True:
-            part = await reader.next()
-            if part is None:
-                break
-            if part.name == "entity_id":
-                entity_id = (await part.text()).strip() or None
-            elif part.name == "file":
-                field = part
-                while True:
-                    chunk = await field.read_chunk(64 * 1024)
-                    if not chunk:
-                        break
-                    buf.extend(chunk)
-                    if len(buf) > MAX_UPLOAD_BYTES:
-                        return self.json_message("too large", status_code=413)
-        if field is None:
+        try:
+            while (part := await reader.next()) is not None:
+                if part.name not in ("entity_id", "file"):
+                    raise SubmitError("unexpected multipart field", 400)
+                if part.name in seen:
+                    raise SubmitError(f"duplicate '{part.name}' field", 400)
+                seen.add(part.name)
+                if part.name == "file":
+                    filename_raw = part.filename
+                    target = buf
+                    limit = MAX_UPLOAD_BYTES
+                else:
+                    target = bytearray()
+                    limit = 512
+                while chunk := await part.read_chunk(64 * 1024):
+                    if len(target) + len(chunk) > limit:
+                        raise SubmitError("too large", 413)
+                    target.extend(chunk)
+                if part.name == "entity_id":
+                    entity_id = target.decode("utf-8").strip() or None
+        except SubmitError as exc:
+            return self.json_message(str(exc), status_code=exc.status)
+        except Exception as exc:
+            _LOGGER.warning("bad multipart body: %s", exc)
+            return self.json_message("invalid multipart body", status_code=400)
+        if "file" not in seen:
             return self.json_message("missing 'file' field", status_code=400)
 
         try:
@@ -521,7 +562,7 @@ class PrintView(HomeAssistantView):
             return self.json_message(
                 "unsupported file type (PDF, JPEG, or PNG)", status_code=415
             )
-        filename = _safe_filename(field.filename, fmt)
+        filename = _safe_filename(filename_raw, fmt)
 
         try:
             job = await _submit(
@@ -552,7 +593,7 @@ class CancelView(HomeAssistantView):
         except Exception:
             return self.json_message("invalid JSON", status_code=400)
         job_id = data.get("job_id") if isinstance(data, dict) else None
-        if not isinstance(job_id, int):
+        if type(job_id) is not int or not 1 <= job_id <= 2**31 - 1:
             return self.json_message(
                 "missing or invalid 'job_id'", status_code=400
             )

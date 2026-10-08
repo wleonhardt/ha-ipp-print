@@ -109,3 +109,50 @@ async def test_lovelace_sync_yaml_mode_falls_back_to_extra_js(hass):
         await _REAL_SYNC(hass, "/ipp_print/card-abc.js")
         await _REAL_SYNC(hass, "/ipp_print/card-abc.js")  # idempotent
     extra.assert_called_once_with(hass, "/ipp_print/card-abc.js")
+
+
+async def test_resource_sync_loads_store_and_serializes(hass):
+    import asyncio
+
+    class StoredCollection(FakeCollection):
+        loaded = False
+        loads = 0
+
+        async def async_load(self):
+            self.loads += 1
+            await asyncio.sleep(0)
+            self.items = [{"id": "old", "url": "/ipp_print/card-old.js"}]
+
+        async def async_delete_item(self, item_id):
+            await super().async_delete_item(item_id)
+            self.items = [item for item in self.items if item["id"] != item_id]
+
+        async def async_create_item(self, data):
+            await asyncio.sleep(0)
+            await super().async_create_item(data)
+            self.items.append({"id": "new", **data})
+
+    hass.data[DOMAIN] = {}
+    coll = StoredCollection([])
+    hass.data["lovelace_resources"] = coll
+    await asyncio.gather(_REAL_SYNC(hass, "/ipp_print/card-new.js"),
+                         _REAL_SYNC(hass, "/ipp_print/card-new.js"))
+    assert coll.loads == 1
+    assert coll.deleted == ["old"]
+    assert len(coll.created) == 1
+
+
+async def test_failed_setup_closes_client_and_removes_live_entry(hass):
+    import pytest
+
+    await _setup(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data={"host": "127.0.0.2"})
+    entry.add_to_hass(hass)
+    with patch.object(hass.config_entries, "async_forward_entry_setups",
+                      new=AsyncMock(side_effect=RuntimeError("setup failed"))), patch.object(
+        integration.PrinterClient, "async_close", new=AsyncMock()
+    ) as close:
+        with pytest.raises(RuntimeError, match="setup failed"):
+            await integration.async_setup_entry(hass, entry)
+    close.assert_awaited_once()
+    assert entry.entry_id not in integration._live_entries(hass)

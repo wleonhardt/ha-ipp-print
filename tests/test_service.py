@@ -211,3 +211,37 @@ async def test_print_file_foreign_entity_target(hass, www):
             {"path": str(www), "entity_id": "sensor.other"},
             blocking=True,
         )
+
+
+async def test_print_file_rejects_unsupported_copy_count(hass, www):
+    await _setup(hass)
+    live = integration._pick_entry(hass, None)
+    with patch.object(live["printer_info"], "copies_max", 1), patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock()
+    ) as print_job:
+        with pytest.raises(HomeAssistantError, match="at most 1 copies"):
+            await hass.services.async_call(
+                DOMAIN, "print_file", {"path": str(www), "copies": 2}, blocking=True
+            )
+        print_job.assert_not_called()
+
+
+def test_file_read_is_bounded_if_file_grows(tmp_path, monkeypatch):
+    path = tmp_path / "growing.pdf"
+    path.write_bytes(b"x" * 20)
+    real_stat = type(path).stat
+    monkeypatch.setattr(integration, "MAX_UPLOAD_BYTES", 10)
+    def small_stat(self, *args, **kwargs):
+        result = real_stat(self, *args, **kwargs)
+        return type("FileStat", (), {"st_size": 0, "st_mode": result.st_mode})()
+    monkeypatch.setattr(type(path), "stat", small_stat)
+    with pytest.raises(ValueError, match="exceeds"):
+        integration._read_file_capped(str(path))
+
+
+def test_file_read_rejects_special_files(tmp_path):
+    import os
+    path = tmp_path / "pipe"
+    os.mkfifo(path)
+    with pytest.raises(ValueError, match="not a regular file"):
+        integration._read_file_capped(str(path))

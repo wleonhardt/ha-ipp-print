@@ -44,7 +44,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_HOST, default=d.get(CONF_HOST, vol.UNDEFINED)): str,
-            vol.Optional(CONF_PORT, default=d.get(CONF_PORT, DEFAULT_PORT)): int,
+            vol.Optional(CONF_PORT, default=d.get(CONF_PORT, DEFAULT_PORT)): vol.All(
+                int, vol.Range(min=1, max=65535)
+            ),
             vol.Optional(CONF_PATH, default=d.get(CONF_PATH, DEFAULT_PATH)): str,
             vol.Optional(CONF_USE_TLS, default=d.get(CONF_USE_TLS, True)): bool,
             vol.Optional(CONF_USER, default=d.get(CONF_USER, DEFAULT_USER)): str,
@@ -72,7 +74,9 @@ def _normalize_uuid(value: str | None) -> str | None:
 
 def _unique_id(info: PrinterInfo | None, data: dict[str, Any]) -> str:
     uuid = _normalize_uuid(info.uuid) if info else None
-    return uuid or f"{data[CONF_HOST]}:{data.get(CONF_PORT, DEFAULT_PORT)}"
+    path = "/" + (data.get(CONF_PATH) or DEFAULT_PATH).strip("/")
+    suffix = "" if path == DEFAULT_PATH else path
+    return uuid or f"{data[CONF_HOST]}:{data.get(CONF_PORT, DEFAULT_PORT)}{suffix}"
 
 
 def _title(info: PrinterInfo | None, host: str) -> str:
@@ -150,9 +154,21 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
         path = "/" + str(props.get("rp") or DEFAULT_PATH).strip("/")
 
         uuid = _normalize_uuid(props.get("UUID"))
-        await self.async_set_unique_id(uuid or f"{host}:{port}")
+        await self.async_set_unique_id(uuid or _unique_id(None, {
+            CONF_HOST: host, CONF_PORT: port, CONF_PATH: path,
+        }))
         self._abort_if_unique_id_configured()
-        self._async_abort_entries_match({CONF_HOST: host})
+        # Several CUPS queues may share one host. Match the effective
+        # endpoint, including options overrides, rather than host alone.
+        for entry in self._async_current_entries():
+            data = {**entry.data, **entry.options}
+            entry_path = "/" + (data.get(CONF_PATH) or DEFAULT_PATH).strip("/")
+            if (
+                data[CONF_HOST] == host
+                and data.get(CONF_PORT, DEFAULT_PORT) == port
+                and entry_path == path
+            ):
+                return self.async_abort(reason="already_configured")
 
         self._discovered = {
             CONF_HOST: host,
@@ -184,6 +200,10 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
                 self._last_error = str(exc)
             else:
+                # Prefer the identity returned by the printer. Discovery
+                # may omit UUID or advertise an outdated one.
+                await self.async_set_unique_id(_unique_id(info, self._discovered))
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=_title(info, self._discovered[CONF_HOST])
                     if info and (info.info or info.make_and_model or info.name)

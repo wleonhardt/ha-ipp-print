@@ -24,6 +24,15 @@ semver-ish `0.x`.
   cancel button, use live app auth after healing, and reject oversized files
   before upload.
 
+- Reject duplicate/unexpected multipart fields and invalid cancel IDs;
+  cap printer-selection fields and return 400 for malformed upload bodies.
+- Bound local file reads even when a file grows after its initial size check;
+  refuse special files and preserve extensions when truncating filenames.
+- Serialize shared card route/resource registration, load stored Lovelace
+  resources before editing them, and close sessions after setup failure or HA stop.
+- Use the probed UUID at discovery confirmation; distinguish CUPS queues
+  by path and check effective options when detecting duplicate endpoints.
+
 ### Added
 - `config_entry_id` on job events identifies the printer when job IDs overlap.
 

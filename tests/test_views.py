@@ -2,6 +2,7 @@
 from unittest.mock import AsyncMock, patch
 
 import aiohttp
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.ipp_print as integration
@@ -304,3 +305,48 @@ async def test_cancel_two_printers_routes_by_entity_id(hass, hass_client):
             json={"job_id": 7, "entity_id": "sensor.test_printer_current_job_2"},
         )
         assert resp.status == 200
+
+
+@pytest.mark.parametrize("job_id", [True, False, 0, -1, 2**31])
+async def test_cancel_rejects_invalid_integer_ids(hass, hass_client, job_id):
+    await _setup(hass)
+    client = await hass_client()
+    resp = await client.post("/api/ipp_print/cancel", json={"job_id": job_id})
+    assert resp.status == 400
+
+
+async def test_duplicate_files_are_not_concatenated(hass, hass_client):
+    await _setup(hass)
+    form = _form(PDF)
+    form.add_field("file", PDF, filename="second.pdf")
+    with patch.object(integration.PrinterClient, "print_job", new=AsyncMock()) as print_job:
+        client = await hass_client()
+        resp = await client.post("/api/ipp_print/print", data=form)
+        assert resp.status == 400
+        assert "duplicate" in (await resp.json())["message"]
+        print_job.assert_not_called()
+
+
+async def test_entity_field_is_size_limited(hass, hass_client):
+    await _setup(hass)
+    client = await hass_client()
+    resp = await client.post(
+        "/api/ipp_print/print", data=_form(PDF, entity_id="x" * 513)
+    )
+    assert resp.status == 413
+
+
+async def test_malformed_multipart_is_400(hass, hass_client):
+    await _setup(hass)
+    client = await hass_client()
+    resp = await client.post(
+        "/api/ipp_print/print", data=b"not-a-boundary",
+        headers={"Content-Type": "multipart/form-data; boundary=missing"},
+    )
+    assert resp.status == 400
+
+
+def test_safe_filename_preserves_extension_and_strips_windows_path():
+    assert integration._safe_filename("a" * 300 + ".pdf").endswith(".pdf")
+    assert integration._safe_filename("a" * 300 + ".jpeg", "image/jpeg").endswith(".jpeg")
+    assert integration._safe_filename(r"C:\fakepath\report.pdf") == "report.pdf"

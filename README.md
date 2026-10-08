@@ -209,7 +209,9 @@ auth token; any authenticated user may call them):
 ### `POST /api/ipp_print/print`
 
 Multipart form-data, field name `file` (PDF, JPEG, or PNG — identified from
-content). With several printers configured, add a text field `entity_id`
+content). Send exactly one `file` field and at most one `entity_id` field;
+unexpected or duplicate fields are rejected with 400. With several printers
+configured, add a text field `entity_id`
 holding the target printer's job sensor (`400` without it). Returns:
 
 ```json

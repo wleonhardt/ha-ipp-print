@@ -129,8 +129,8 @@ async def test_zeroconf_plain_ipp_uses_rp_path_and_no_tls(hass):
     assert result["data"]["use_tls"] is False
     assert result["data"]["port"] == 631
     assert result["data"]["path"] == "/printers/office"
-    # No UUID advertised → host:port unique id.
-    assert result["result"].unique_id == "192.0.2.10:631"
+    # Confirmation uses the probed UUID even when discovery omitted it.
+    assert result["result"].unique_id == "12345678-1234-1234-1234-123456789abc"
 
 
 async def test_zeroconf_already_configured_by_host_aborts(hass):
@@ -175,3 +175,47 @@ async def test_options_flow_roundtrip(hass):
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options["path"] == "/printers/office"
     assert DEFAULT_PRINTER_INFO.formats  # fixture sanity
+
+
+async def test_discovery_confirmation_prevents_duplicate_probed_uuid(hass):
+    MockConfigEntry(
+        domain=DOMAIN, data={"host": "192.0.2.99"},
+        unique_id="12345678-1234-1234-1234-123456789abc",
+    ).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=_zc(),
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_discovery_allows_separate_queues_on_same_host(hass, printer_attrs):
+    printer_attrs.return_value = NAMELESS
+    MockConfigEntry(
+        domain=DOMAIN,
+        data={"host": "192.0.2.10", "port": 631, "path": "/printers/lab"},
+        unique_id="192.0.2.10:631/printers/lab",
+    ).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
+        data=_zc("_ipp._tcp.local.", port=631, rp="printers/office"),
+    )
+    assert result["type"] is FlowResultType.FORM
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].unique_id == "192.0.2.10:631/printers/office"
+
+
+async def test_discovery_detects_endpoint_in_options(hass):
+    MockConfigEntry(
+        domain=DOMAIN, data={"host": "192.0.2.99"},
+        options={"host": "192.0.2.10", "port": 631, "path": "/printers/office"},
+        unique_id="old-identity",
+    ).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
+        data=_zc("_ipp._tcp.local.", port=631, rp="printers/office"),
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
