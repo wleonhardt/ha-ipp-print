@@ -3,13 +3,20 @@
 ## Queue
 
 - Shared scan/print rollout in progress. Phase 0 contract/current-host
-  experiment and Phase 1 implementation ready for v0.5.0 release/install.
-  Physical Android confirmation pending. Next: Phase 2 upload copies/sides
+  experiment and Phase 1 released and installed as print v0.5.0 / scan v0.6.0.
+  Physical phone loading confirmed. Next: Phase 2 upload copies/sides
   and capabilities before Phase 3 settings controls.
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
   [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
 
 ## Done
+
+- 2026-10-08 — v0.5.0 paired card release installed with scan v0.6.0. Staged
+  files, explicit Print, shared theme styling and Sections sizing. Fixed native
+  lifecycle cleanup, ambiguous submission handling and HA-owned error recovery.
+  135 Python / 29 card tests, Ruff, compileall and hosted validation/release
+  workflows pass. User confirmed both cards load correctly on the phone.
+  [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
 
 - 2026-10-08 — Thorough code review and v0.4.1 live validation complete.
   [Findings, repairs, verification, and remaining design choices](2026-10-08-code-review.md).
