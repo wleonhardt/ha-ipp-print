@@ -4,10 +4,13 @@
 
 - Shared scan/print rollout in progress. Phase 0 contract/current-host
   experiment and Phase 1 released and installed as print v0.5.0 / scan v0.6.0.
-  Physical phone loading confirmed. Next: Phase 2 upload copies/sides
-  and capabilities before Phase 3 settings controls.
+  Physical phone loading confirmed. Phase 2 upload copies/sides and capabilities
+  implemented and installed as print v0.6.0 / scan v0.7.0. Live API and print
+  jobs pass; physical four-sheet confirmation and release tags pending.
+  Next implementation: Phase 3 settings controls.
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
   [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
+  [Phase 2 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-2-validation.md).
 
 ## Done
 

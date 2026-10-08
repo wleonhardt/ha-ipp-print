@@ -1,7 +1,9 @@
 # Shared scan and print card rollout
 
 Status: in-progress, 2026-10-08. Phase 1 released and installed as v0.5.0 with
-scan v0.6.0. Physical phone loading confirmed. Phase 2 is next; remaining host
+scan v0.6.0. Physical phone loading confirmed. Phase 2 implemented and installed
+as print v0.6.0 / scan v0.7.0; physical output confirmation and release tags
+pending. Phase 3 is next; remaining host
 limits are in the canonical validation record linked from `next-up.md`.
 
 Use the same visual and interaction contract as ha-escl-scan: neutral Home
