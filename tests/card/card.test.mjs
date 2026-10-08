@@ -135,9 +135,9 @@ test('upload posts to the endpoint and follows the job via subscribe_entities', 
   cb({ c: { 'sensor.office_job': { '+': { a: { pages_done: 2 } } } } });
   assert.equal(status.textContent, 'Printing page 2/3…');
 
-  // Diffs for another job are ignored.
+  // A newer job supersedes the sensor; do not keep claiming ours is printing.
   cb({ c: { 'sensor.office_job': { '+': { s: 'pending', a: { job_id: 99 } } } } });
-  assert.equal(status.textContent, 'Printing page 2/3…');
+  assert.equal(status.textContent, 'Job submitted (printer is tracking another job)');
 
   // Terminal state with an attribute removal → completion text, unsubscribed.
   cb({ c: { 'sensor.office_job': { '+': { s: 'completed', a: { job_id: 42, pages_done: 3 } }, '-': { a: ['pages_total'] } } } });
@@ -305,16 +305,22 @@ test('active and paused jobs remain subscribed beyond the initial safety window'
   const { hass, calls } = makeHass(win);
   el.hass = hass;
   el._activeJobId = 7;
+  const timers = new Map();
+  let nextTimer = 100000;
+  const realClearTimeout = win.clearTimeout.bind(win);
+  win.setTimeout = (cb, ms) => { const id = ++nextTimer; timers.set(id, { cb, ms }); return id; };
+  win.clearTimeout = (id) => {
+    if (!timers.delete(id)) realClearTimeout(id);
+  };
   await el._trackPrintProgress(SENSOR);
-  const timers = [];
-  win.setTimeout = (cb, ms) => { timers.push({ cb, ms }); return 123; };
+  assert.equal(timers.size, 1);
   calls.subscribe[0].cb({ a: { [SENSOR]: {
     s: 'processing-stopped', a: { job_id: 7, state_reasons: 'media-empty' },
   } } });
   assert.equal(el._statusEl.textContent, 'Printing paused: media-empty');
   assert.ok(el._cancelEl.classList.contains('show'));
   assert.equal(calls.unsubscribed, undefined);
-  assert.equal(timers.filter((t) => t.ms === 90_000).length, 0);
+  assert.equal(timers.size, 0, 'first-snapshot timeout cleared for an active job');
 });
 
 test('previous subscription cannot overwrite the next job', async () => {
@@ -379,4 +385,28 @@ test('removed sensor ends tracking and hides cancel', async () => {
   assert.equal(calls.unsubscribed, true);
   assert.match(el._statusEl.textContent, /sensor unavailable/);
   assert.ok(!el._cancelEl.classList.contains('show'));
+});
+
+
+test('a pending cancel for an older job cannot block cancellation of the next job', async () => {
+  const win = boot();
+  const el = mount(win);
+  const resolvers = [];
+  const { hass, calls } = makeHass(win, {
+    fetchImpl: () => new Promise((resolve) => { resolvers.push(resolve); }),
+  });
+  el.hass = hass;
+  el._activeJobId = 7;
+  el._progressGeneration = 1;
+  const oldCancel = el._cancelJob();
+  el._activeJobId = 8;
+  el._progressGeneration = 2;
+  const newCancel = el._cancelJob();
+  assert.equal(calls.fetch.length, 2);
+  resolvers[0](jsonResponse({ ok: true }));
+  await oldCancel;
+  assert.equal(el._cancelPending.jobId, 8);
+  resolvers[1](jsonResponse({ ok: true }));
+  await newCancel;
+  assert.equal(el._cancelPending, null);
 });

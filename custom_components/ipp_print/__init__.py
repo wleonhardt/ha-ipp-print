@@ -54,7 +54,7 @@ from .const import (
     sniff_format,
 )
 from .coordinator import JobCoordinator
-from .printer import SIDES, IppError, PrinterClient, PrinterInfo
+from .printer import SIDES, IppError, IppHttpError, PrinterClient, PrinterInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,6 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         relaxed_ciphers=data.get(CONF_RELAXED_CIPHERS, False),
     )
     coordinator = JobCoordinator(hass, client, entry.entry_id)
+    platform_setup_started = False
 
     try:
         # Identity + capabilities. A printer that is off right now must not
@@ -161,8 +162,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DOMAIN, DOMAIN, data[CONF_HOST],
         )
 
-        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
         # Serve the upload card with a content-hash URL so browsers re-fetch
         # on every edit. Track which URLs we've already registered so reloads
         # (options change → async_reload) don't re-call register_static_paths
@@ -181,6 +180,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
                 registered.add(card_url)
         hass.data[DOMAIN][entry.entry_id]["card_url"] = card_url
+        platform_setup_started = True
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         hass.async_create_background_task(
             _sync_lovelace_resource(hass, card_url), name="ipp_print resource sync"
         )
@@ -196,6 +197,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return True
 
     except BaseException:
+        if platform_setup_started:
+            try:
+                await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+            except Exception:
+                _LOGGER.exception("failed to clean up platforms after setup failure")
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         await coordinator.async_shutdown()
         await client.async_close()
@@ -390,11 +396,15 @@ async def _submit(
         )
     except IppError as exc:
         _LOGGER.warning("IPP submission failed: %s", exc)
-        raise SubmitError(str(exc), 502) from exc
+        detail = str(exc)
+        if not isinstance(exc, IppHttpError):
+            detail += "; the printer may have accepted the job; check its queue before retrying"
+        raise SubmitError(detail, 502) from exc
     except Exception as exc:
         _LOGGER.exception("IPP submission failed")
         raise SubmitError(
-            f"IPP submission failed: {type(exc).__name__}: {str(exc)[:120]}",
+            f"IPP submission failed: {type(exc).__name__}: {str(exc)[:120]}; "
+            "the printer may have accepted the job; check its queue before retrying",
             502,
         ) from exc
 
@@ -403,7 +413,10 @@ async def _submit(
             f"printer refused job (ipp_status=0x{result.ipp_status:04x})", 502
         )
     if result.job_id is None:
-        raise SubmitError("printer did not return a job-id", 502)
+        raise SubmitError(
+            "printer did not return a job-id; the job may have printed; "
+            "check its queue before retrying", 502
+        )
 
     try:
         coordinator.track(

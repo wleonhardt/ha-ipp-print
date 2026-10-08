@@ -140,8 +140,15 @@ Bus events you can trigger automations from:
 Both carry the full job dict plus `config_entry_id` as `event.data`, so
 automations can distinguish printers with the same job ID. `unknown` means
 the printer purged a job before its final outcome could be observed; it is
-not proof of successful printing. Missing or malformed job attributes are
+not proof of successful printing. The sensor mirrors the latest submitted
+job; when another submission replaces it, the card explains that live
+progress for the previous job is no longer available. Bus events continue
+for every tracked job. Missing or malformed job attributes are
 retried and eventually reported as `aborted` / `printer-unreachable`.
+A submission timeout or invalid printer response can occur after the printer
+has accepted the document. Check the printer queue before retrying to avoid
+duplicate output. In-memory tracking is reset when the integration reloads
+or Home Assistant restarts; that does not cancel printer-side jobs.
 
 ### Automation example
 

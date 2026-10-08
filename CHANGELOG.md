@@ -39,6 +39,15 @@ semver-ish `0.x`.
   implicitly replaying jobs against another endpoint.
 - Update the vulnerable test-only `source-map-js` dependency; audit is clean.
 
+- Prefer strict image signatures over incidental PDF text in image metadata.
+- Prevent manual setup from duplicating legacy entries with host/port IDs;
+  unload partially initialized sensor platforms on setup failure.
+- Explain when a newer job replaces the card's followed sensor, and scope
+  pending cancel requests to the job so they cannot block a later job.
+
+- Explain that a timed-out submission or missing job ID may already have
+  printed, so retrying without checking the queue can create duplicates.
+
 ### Added
 - `config_entry_id` on job events identifies the printer when job IDs overlap.
 

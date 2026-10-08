@@ -219,3 +219,15 @@ async def test_discovery_detects_endpoint_in_options(hass):
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_manual_setup_rejects_legacy_endpoint_duplicate(hass):
+    MockConfigEntry(
+        domain=DOMAIN, data={"host": "192.0.2.10"}, unique_id="192.0.2.10:443",
+    ).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"

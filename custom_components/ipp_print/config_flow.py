@@ -79,6 +79,15 @@ def _unique_id(info: PrinterInfo | None, data: dict[str, Any]) -> str:
     return uuid or f"{data[CONF_HOST]}:{data.get(CONF_PORT, DEFAULT_PORT)}{suffix}"
 
 
+def _endpoint(data: dict[str, Any]) -> tuple[str, int, str]:
+    """Effective endpoint independent of legacy unique-id conventions."""
+    return (
+        data[CONF_HOST].strip().lower().strip("[]").rstrip("."),
+        data.get(CONF_PORT, DEFAULT_PORT),
+        "/" + (data.get(CONF_PATH) or DEFAULT_PATH).strip("/"),
+    )
+
+
 def _title(info: PrinterInfo | None, host: str) -> str:
     if info:
         for candidate in (info.info, info.make_and_model, info.name):
@@ -121,6 +130,12 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_name: str = ""
         self._last_error: str = ""
 
+    def _endpoint_configured(self, data: dict[str, Any]) -> bool:
+        return any(
+            _endpoint({**entry.data, **entry.options}) == _endpoint(data)
+            for entry in self._async_current_entries()
+        )
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -132,6 +147,8 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 await self.async_set_unique_id(_unique_id(info, user_input))
                 self._abort_if_unique_id_configured()
+                if self._endpoint_configured(user_input):
+                    return self.async_abort(reason="already_configured")
                 return self.async_create_entry(
                     title=_title(info, user_input[CONF_HOST]),
                     data=user_input,
@@ -160,15 +177,8 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
         # Several CUPS queues may share one host. Match the effective
         # endpoint, including options overrides, rather than host alone.
-        for entry in self._async_current_entries():
-            data = {**entry.data, **entry.options}
-            entry_path = "/" + (data.get(CONF_PATH) or DEFAULT_PATH).strip("/")
-            if (
-                data[CONF_HOST] == host
-                and data.get(CONF_PORT, DEFAULT_PORT) == port
-                and entry_path == path
-            ):
-                return self.async_abort(reason="already_configured")
+        if self._endpoint_configured({CONF_HOST: host, CONF_PORT: port, CONF_PATH: path}):
+            return self.async_abort(reason="already_configured")
 
         self._discovered = {
             CONF_HOST: host,

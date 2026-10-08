@@ -201,10 +201,12 @@ C.prototype._sensorId = function () {
 };
 
 C.prototype._cancelJob = async function () {
-  if (this._activeJobId == null || this._cancelPending) return;
+  if (this._activeJobId == null) return;
   const jobId = this._activeJobId;
   const generation = this._progressGeneration;
-  this._cancelPending = true;
+  if (this._cancelPending?.jobId === jobId && this._cancelPending?.generation === generation) return;
+  const pending = { jobId, generation };
+  this._cancelPending = pending;
   try {
     const r = await this._authedFetch('/api/ipp_print/cancel', {
       method: 'POST',
@@ -227,7 +229,7 @@ C.prototype._cancelJob = async function () {
       this._setStatus('Cancel failed: ' + (err?.message || err), 'err');
     }
   } finally {
-    this._cancelPending = false;
+    if (this._cancelPending === pending) this._cancelPending = null;
   }
 };
 
@@ -417,7 +419,17 @@ C.prototype._trackPrintProgress = async function (sensorId) {
   };
   const onUpdate = () => {
     if (stopped || !isCurrent()) return;
-    if (cur.attributes.job_id !== ourJobId) return;
+    if (cur.attributes.job_id !== ourJobId) {
+      if (sawMatchingState) {
+        sawMatchingState = false;
+        this._setStatus('Job submitted (printer is tracking another job)', 'ok');
+        this._setCancelVisible(false);
+        this._progressSafety = setTimeout(() => {
+          if (isCurrent() && !stopped) stop();
+        }, 90_000);
+      }
+      return;
+    }
     sawMatchingState = true;
     clearTimeout(this._progressSafety);
     render(cur.state, cur.attributes);

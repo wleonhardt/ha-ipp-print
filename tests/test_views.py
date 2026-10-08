@@ -350,3 +350,20 @@ def test_safe_filename_preserves_extension_and_strips_windows_path():
     assert integration._safe_filename("a" * 300 + ".pdf").endswith(".pdf")
     assert integration._safe_filename("a" * 300 + ".jpeg", "image/jpeg").endswith(".jpeg")
     assert integration._safe_filename(r"C:\fakepath\report.pdf") == "report.pdf"
+
+
+def test_image_magic_takes_priority_over_embedded_pdf_text():
+    from custom_components.ipp_print.const import sniff_format
+
+    assert sniff_format(b"\x89PNG\r\n\x1a\ncomment %PDF-1.7") == "image/png"
+    assert sniff_format(b"\xff\xd8\xff\xe0EXIF %PDF-1.7") == "image/jpeg"
+
+
+async def test_submit_timeout_reports_ambiguous_outcome(hass, hass_client):
+    await _setup(hass)
+    with patch.object(integration.PrinterClient, "print_job",
+                      new=AsyncMock(side_effect=TimeoutError())):
+        client = await hass_client()
+        resp = await client.post("/api/ipp_print/print", data=_form(PDF))
+    assert resp.status == 502
+    assert "check its queue before retrying" in (await resp.json())["message"]

@@ -156,3 +156,49 @@ async def test_failed_setup_closes_client_and_removes_live_entry(hass):
             await integration.async_setup_entry(hass, entry)
     close.assert_awaited_once()
     assert entry.entry_id not in integration._live_entries(hass)
+
+
+async def test_parallel_setup_registers_card_path_once(hass):
+    import asyncio
+
+    await _setup(hass)
+    hass.data[DOMAIN]["_card_urls_registered"].clear()
+    entries = [MockConfigEntry(domain=DOMAIN, data={"host": f"127.0.0.{n}"})
+               for n in (2, 3)]
+    for entry in entries:
+        entry.add_to_hass(hass)
+
+    async def yielding_registration(_paths):
+        await asyncio.sleep(0)
+
+    with patch.object(hass.http, "async_register_static_paths",
+                      side_effect=yielding_registration) as register, patch.object(
+        hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+    ):
+        await asyncio.gather(*(integration.async_setup_entry(hass, entry) for entry in entries))
+    register.assert_awaited_once()
+
+
+async def test_homeassistant_stop_closes_client(hass):
+    from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+
+    entry = await _setup(hass)
+    data = hass.data[DOMAIN][entry.entry_id]
+    with patch.object(data["client"], "async_close", new=AsyncMock()) as close:
+        hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+        await hass.async_block_till_done()
+    close.assert_awaited_once()
+    assert data["coordinator"]._stopped
+
+
+async def test_unknown_outcome_sensor_preserves_job_attributes(hass):
+    entry = await _setup(hass)
+    coord = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    with patch.object(JobCoordinator, "_ensure_poll_loop"):
+        job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    coord._mark_terminal(job, "unknown", "job-outcome-unknown")
+    await hass.async_block_till_done()
+    state = hass.states.get("sensor.test_printer_current_job")
+    assert state.state == "unknown"
+    assert state.attributes["job_id"] == 7
+    assert state.attributes["state_reasons"] == "job-outcome-unknown"

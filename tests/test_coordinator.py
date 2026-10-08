@@ -213,3 +213,39 @@ async def test_shutdown_refuses_new_tracking(hass):
     await coord.async_shutdown()
     with pytest.raises(RuntimeError, match="unloaded"):
         coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+
+
+@pytest.mark.parametrize("cancel_status,outcome", [(0, "canceled"), (0x0401, "unknown")])
+async def test_poll_waits_for_cancel_result(hass, cancel_status, outcome):
+    from unittest.mock import patch
+
+    cancel_started = asyncio.Event()
+    allow_cancel = asyncio.Event()
+
+    class RacingClient(FakeClient):
+        async def cancel_job(self, job_id):
+            cancel_started.set()
+            await allow_cancel.wait()
+            return cancel_status
+
+    coord = JobCoordinator(hass, RacingClient([JobGoneError("gone")]))
+    with patch.object(coord, "_ensure_poll_loop"):
+        job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    cancel = asyncio.create_task(coord.async_cancel(7))
+    await cancel_started.wait()
+    poll = asyncio.create_task(coord._poll_one(job))
+    await asyncio.sleep(0)
+    assert not job.is_terminal()
+    allow_cancel.set()
+    await asyncio.gather(cancel, poll)
+    assert job.state == outcome
+
+
+async def test_terminal_job_cannot_be_cancelled(hass):
+    client = FakeClient([_attrs(9)])
+    coord = JobCoordinator(hass, client)
+    job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    await _wait_for(job.is_terminal)
+    assert not await coord.async_cancel(7)
+    assert not client.cancelled
+    await coord.async_shutdown()

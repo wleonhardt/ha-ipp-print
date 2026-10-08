@@ -50,9 +50,9 @@ ATTR_SIDES = "sides"
 def sniff_format(buf: bytes | bytearray) -> str | None:
     """Return the MIME type for a document we know how to identify."""
     head = bytes(buf[:1024])
-    if PDF_MAGIC in head:
-        return "application/pdf"
     for magic, fmt in IMAGE_MAGIC:
         if head.startswith(magic):
             return fmt
+    if PDF_MAGIC in head:
+        return "application/pdf"
     return None
