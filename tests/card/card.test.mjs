@@ -1,5 +1,5 @@
 // jsdom tests for the Lovelace card. Run: npm run test:card
-import { test } from 'node:test';
+import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -14,11 +14,18 @@ const CARD_SRC = readFileSync(
 const TAG = 'ipp-print-upload-card';
 const SENSOR = 'sensor.printer_current_job';
 
+const windows = new Set();
+afterEach(() => {
+  for (const win of windows) win.close();
+  windows.clear();
+});
+
 function boot() {
   const dom = new JSDOM('<home-assistant></home-assistant>', {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
   });
+  windows.add(dom.window);
   dom.window.eval(CARD_SRC);
   return dom.window;
 }
@@ -243,4 +250,133 @@ test('refuses to upload when several printers exist and no entity is set', async
   assert.equal(calls.fetch.length, 0);
   assert.match(el.shadowRoot.querySelector('.status').textContent, /set entity:/);
   assert.ok(!el._busy);
+});
+
+test('disconnect closes a subscription that resolves late', async () => {
+  const win = boot();
+  const el = mount(win, { entity: SENSOR });
+  let resolveSubscribe;
+  let unsubscribed = 0;
+  el.hass = { states: {}, connection: {
+    subscribeMessage: () => new Promise((resolve) => { resolveSubscribe = resolve; }),
+  } };
+  el._activeJobId = 7;
+  const tracking = el._trackPrintProgress(SENSOR);
+  el.remove();
+  resolveSubscribe(() => { unsubscribed++; });
+  await tracking;
+  assert.equal(unsubscribed, 1);
+  assert.equal(el._unsubProgress, undefined);
+});
+
+test('terminal update before subscription resolution closes the late handle', async () => {
+  const win = boot();
+  const el = mount(win);
+  let unsubscribed = 0;
+  el.hass = { states: {}, connection: {
+    subscribeMessage: async (cb) => {
+      cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 7 } } } });
+      return () => { unsubscribed++; };
+    },
+  } };
+  el._activeJobId = 7;
+  await el._trackPrintProgress(SENSOR);
+  assert.equal(unsubscribed, 1);
+  assert.match(el._statusEl.textContent, /Print complete/);
+  assert.equal(el._activeJobId, null);
+});
+
+test('initial terminal snapshot needs no subscription', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win, {
+    states: { [SENSOR]: { state: 'completed', attributes: { job_id: 7 } } },
+  });
+  el.hass = hass;
+  el._activeJobId = 7;
+  await el._trackPrintProgress(SENSOR);
+  assert.equal(calls.subscribe.length, 0);
+  assert.match(el._statusEl.textContent, /Print complete/);
+});
+
+test('active and paused jobs remain subscribed beyond the initial safety window', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win);
+  el.hass = hass;
+  el._activeJobId = 7;
+  await el._trackPrintProgress(SENSOR);
+  const timers = [];
+  win.setTimeout = (cb, ms) => { timers.push({ cb, ms }); return 123; };
+  calls.subscribe[0].cb({ a: { [SENSOR]: {
+    s: 'processing-stopped', a: { job_id: 7, state_reasons: 'media-empty' },
+  } } });
+  assert.equal(el._statusEl.textContent, 'Printing paused: media-empty');
+  assert.ok(el._cancelEl.classList.contains('show'));
+  assert.equal(calls.unsubscribed, undefined);
+  assert.equal(timers.filter((t) => t.ms === 90_000).length, 0);
+});
+
+test('previous subscription cannot overwrite the next job', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win);
+  el.hass = hass;
+  el._activeJobId = 7;
+  await el._trackPrintProgress(SENSOR);
+  const old = calls.subscribe[0].cb;
+  el._activeJobId = 8;
+  await el._trackPrintProgress(SENSOR);
+  calls.subscribe[1].cb({ a: { [SENSOR]: { s: 'processing', a: { job_id: 8 } } } });
+  old({ a: { [SENSOR]: { s: 'completed', a: { job_id: 7 } } } });
+  assert.equal(el._statusEl.textContent, 'Printing…');
+  assert.equal(el._activeJobId, 8);
+});
+
+test('late cancel response does not overwrite completion', async () => {
+  const win = boot();
+  const el = mount(win);
+  let resolveCancel;
+  const { hass, calls } = makeHass(win, {
+    fetchImpl: () => new Promise((resolve) => { resolveCancel = resolve; }),
+  });
+  el.hass = hass;
+  el._activeJobId = 7;
+  el._activeSensorId = SENSOR;
+  await el._trackPrintProgress(SENSOR);
+  const cancel = el._cancelJob();
+  calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 7 } } } });
+  resolveCancel(jsonResponse({ ok: true }));
+  await cancel;
+  assert.match(el._statusEl.textContent, /Print complete/);
+});
+
+test('healed card uses the latest app-root hass', () => {
+  const win = boot();
+  const el = mount(win);
+  const old = { states: {} };
+  const live = { states: { [SENSOR]: {} } };
+  el.hass = old;
+  win.document.querySelector('home-assistant').hass = live;
+  assert.equal(el._getHass(), live);
+});
+
+test('rejects oversized files before posting', async () => {
+  const win = boot();
+  const el = mount(win);
+  await el._upload({ size: 50 * 1024 * 1024 + 1, name: 'large.pdf' });
+  assert.match(el._statusEl.textContent, /50 MiB/);
+});
+
+test('removed sensor ends tracking and hides cancel', async () => {
+  const win = boot();
+  const el = mount(win);
+  const { hass, calls } = makeHass(win);
+  el.hass = hass;
+  el._activeJobId = 7;
+  await el._trackPrintProgress(SENSOR);
+  calls.subscribe[0].cb({ r: [SENSOR] });
+  assert.equal(calls.unsubscribed, true);
+  assert.match(el._statusEl.textContent, /sensor unavailable/);
+  assert.ok(!el._cancelEl.classList.contains('show'));
 });

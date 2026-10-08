@@ -158,7 +158,7 @@ C.prototype._render = function () {
 // hui-card can keep pointing at the replaced error card), so every consumer
 // falls back to the app root's live hass object.
 C.prototype._getHass = function () {
-  return this._hass || document.querySelector('home-assistant')?.hass || null;
+  return document.querySelector('home-assistant')?.hass || this._hass || null;
 };
 
 // hass.fetchWithAuth refreshes an expired token automatically; a raw fetch
@@ -201,15 +201,19 @@ C.prototype._sensorId = function () {
 };
 
 C.prototype._cancelJob = async function () {
-  if (this._activeJobId == null) return;
+  if (this._activeJobId == null || this._cancelPending) return;
+  const jobId = this._activeJobId;
+  const generation = this._progressGeneration;
+  this._cancelPending = true;
   try {
     const r = await this._authedFetch('/api/ipp_print/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        job_id: this._activeJobId, entity_id: this._activeSensorId,
+        job_id: jobId, entity_id: this._activeSensorId,
       }),
     });
+    if (this._activeJobId !== jobId || this._progressGeneration !== generation) return;
     if (!r.ok) {
       const body = await r.text();
       this._setStatus('Cancel failed: ' + body.slice(0, 80), 'err');
@@ -219,7 +223,11 @@ C.prototype._cancelJob = async function () {
     // The coordinator's next poll will observe IPP terminal state and the
     // sensor subscription will overwrite this with "Print canceled".
   } catch (err) {
-    this._setStatus('Cancel failed: ' + (err?.message || err), 'err');
+    if (this._activeJobId === jobId && this._progressGeneration === generation) {
+      this._setStatus('Cancel failed: ' + (err?.message || err), 'err');
+    }
+  } finally {
+    this._cancelPending = false;
   }
 };
 
@@ -266,6 +274,11 @@ C.prototype._pick = function () {
 };
 
 C.prototype._upload = async function (file) {
+  if (this._busy) return;
+  if (file.size > 50 * 1024 * 1024) {
+    this._setStatus('File exceeds the 50 MiB limit.', 'err');
+    return;
+  }
   if (!/\.(pdf|jpe?g|png)$/i.test(file.name) && !ACCEPTED_TYPES.has(file.type)) {
     this._setStatus('Pick a PDF, JPEG, or PNG file.', 'err');
     return;
@@ -277,6 +290,9 @@ C.prototype._upload = async function (file) {
     this._setStatus(err.message, 'err');
     return;
   }
+  this._stopProgress();
+  this._activeJobId = null;
+  this._setCancelVisible(false);
   this._busy = true;
   this._card.classList.add('busy');
   this._setStatus('Uploading…');
@@ -307,6 +323,9 @@ C.prototype._upload = async function (file) {
     // Subscribe to the job sensor's updates for this job-id.
     this._trackPrintProgress(sensorId).catch((e) => {
       console.warn('[ipp-print] progress tracking error', e);
+      if (this._activeJobId === body?.job_id) {
+        this._setStatus('Job submitted (progress unavailable)', 'ok');
+      }
     });
   } catch (err) {
     this._setStatus('Submit failed: ' + (err && err.message ? err.message : err), 'err');
@@ -325,134 +344,140 @@ const ACTIVE_STATES = new Set([
   'pending', 'pending-held', 'processing', 'processing-stopped',
 ]);
 
-C.prototype._trackPrintProgress = async function (sensorId) {
-  const hass = this._getHass();
-  if (!hass || !hass.connection || !sensorId) return;
-
-  // Cancel any previous subscription so successive uploads don't overlap.
+C.prototype._stopProgress = function () {
+  this._progressGeneration = (this._progressGeneration || 0) + 1;
+  clearTimeout(this._progressSafety);
   if (this._unsubProgress) {
     try { this._unsubProgress(); } catch {}
     this._unsubProgress = null;
   }
-  clearTimeout(this._progressSafety);
+};
 
+C.prototype.disconnectedCallback = function () {
+  this._stopProgress();
+};
+
+C.prototype.connectedCallback = function () {
+  if (this._activeJobId != null && this._activeSensorId) {
+    this._trackPrintProgress(this._activeSensorId).catch((err) => {
+      console.warn('[ipp-print] progress tracking error', err);
+    });
+  }
+};
+
+C.prototype._trackPrintProgress = async function (sensorId) {
+  this._stopProgress();
+  const hass = this._getHass();
   const ourJobId = this._activeJobId;
-  let sawState = null;
+  if (!this.isConnected || !hass?.connection || !sensorId || ourJobId == null) return;
 
-  const render = (state, attrs) => {
-    const pagesDone = attrs?.pages_done;
-    const pagesTotal = attrs?.pages_total;
-    let msg;
-    if (state === 'processing') {
-      if (pagesTotal && pagesDone != null) {
-        msg = `Printing page ${pagesDone}/${pagesTotal}…`;
-      } else if (pagesDone) {
-        msg = `Printing page ${pagesDone}…`;
-      } else {
-        msg = 'Printing…';
-      }
-      this._setStatus(msg);
-      this._setCancelVisible(true);
-    } else if (state === 'pending' || state === 'pending-held') {
-      this._setStatus('Queued for printer…');
-      this._setCancelVisible(true);
-    } else if (state === 'completed') {
-      const pages = pagesDone || pagesTotal;
-      const pagesMsg = pages ? ` (${pages} page${pages > 1 ? 's' : ''})` : '';
-      this._setStatus(`Print complete ✓${pagesMsg}`, 'ok');
-      this._setCancelVisible(false);
-    } else if (state === 'canceled') {
-      this._setStatus('Print canceled', 'err');
-      this._setCancelVisible(false);
-    } else if (state === 'aborted') {
-      const reason = attrs?.state_reasons;
-      this._setStatus(
-        'Print failed' + (reason ? `: ${reason}` : ''),
-        'err',
-      );
-      this._setCancelVisible(false);
-    } else if (state === 'unknown') {
-      this._setStatus('Print outcome unknown (printer removed job)', 'err');
-      this._setCancelVisible(false);
-    } else {
+  const generation = this._progressGeneration;
+  let stopped = false;
+  let unsubscribe = null;
+  let sawMatchingState = false;
+  const isCurrent = () => generation === this._progressGeneration && this.isConnected;
+  const stop = () => {
+    stopped = true;
+    if (unsubscribe) { try { unsubscribe(); } catch {} }
+    if (isCurrent()) {
+      this._unsubProgress = null;
+      clearTimeout(this._progressSafety);
       this._setCancelVisible(false);
     }
   };
+  const render = (state, attrs) => {
+    const pagesDone = attrs?.pages_done;
+    const pagesTotal = attrs?.pages_total;
+    if (state === 'processing') {
+      const progress = pagesTotal && pagesDone != null
+        ? ` page ${pagesDone}/${pagesTotal}` : pagesDone ? ` page ${pagesDone}` : '';
+      this._setStatus(`Printing${progress}…`);
+    } else if (state === 'pending' || state === 'pending-held') {
+      this._setStatus('Queued for printer…');
+    } else if (state === 'processing-stopped') {
+      this._setStatus('Printing paused' + (attrs?.state_reasons ? `: ${attrs.state_reasons}` : ''));
+    } else if (state === 'completed') {
+      const pages = pagesDone ?? pagesTotal;
+      const pagesMsg = pages ? ` (${pages} page${pages > 1 ? 's' : ''})` : '';
+      this._setStatus(`Print complete ✓${pagesMsg}`, 'ok');
+    } else if (state === 'canceled') {
+      this._setStatus('Print canceled', 'err');
+    } else if (state === 'aborted') {
+      this._setStatus('Print failed' + (attrs?.state_reasons ? `: ${attrs.state_reasons}` : ''), 'err');
+    } else if (state === 'unknown') {
+      this._setStatus('Print outcome unknown (printer removed job)', 'err');
+    }
+    this._setCancelVisible(ACTIVE_STATES.has(state));
+  };
 
-  // Push the initial render from the current sensor snapshot — the
-  // coordinator may have already moved the job into pending before we
-  // subscribed.
-  const initial = hass.states[sensorId];
-  // Local mirror of the sensor; subscribe_entities sends diffs.
+  const initial = hass.states?.[sensorId];
   const cur = {
     state: initial?.state ?? null,
     attributes: Object.assign({}, initial?.attributes || {}),
   };
-  if (initial && initial.attributes?.job_id === ourJobId) {
-    sawState = initial.state;
-    render(initial.state, initial.attributes);
-  }
-
   const onUpdate = () => {
-    // Only act on changes that belong to our job, or to idle (which means
-    // the coordinator cleared after the terminal hold window).
-    const sensorJobId = cur.attributes.job_id;
-    if (sensorJobId != null && sensorJobId !== ourJobId) return;
-    sawState = cur.state;
+    if (stopped || !isCurrent()) return;
+    if (cur.attributes.job_id !== ourJobId) return;
+    sawMatchingState = true;
+    clearTimeout(this._progressSafety);
     render(cur.state, cur.attributes);
     if (TERMINAL_STATES.has(cur.state)) {
-      // Leave the message up for a bit, then unsubscribe.
-      clearTimeout(this._progressSafety);
+      stop();
+      this._activeJobId = null;
       this._progressSafety = setTimeout(() => {
-        if (this._statusEl?.textContent &&
-            !ACTIVE_STATES.has(sawState)) {
-          this._setStatus('');
-        }
+        if (isCurrent()) this._setStatus('');
       }, 10_000);
-      try { this._unsubProgress(); } catch {}
-      this._unsubProgress = null;
     }
   };
+  onUpdate();
+  if (stopped) return;
 
-  // `subscribe_entities` is server-filtered to this one entity and, unlike
-  // `subscribe_trigger`, is not admin-only — so non-admin dashboard users
-  // get progress too. Messages carry compressed diffs:
-  //   a: full add   {id: {s, a}}
-  //   c: change     {id: {'+': {s?, a?(partial)}, '-': {a?: [keys]}}}
-  //   r: removed    [ids]
-  this._unsubProgress = await hass.connection.subscribeMessage((msg) => {
-    const add = msg?.a?.[sensorId];
-    if (add) {
-      cur.state = add.s;
-      cur.attributes = Object.assign({}, add.a || {});
-      onUpdate();
-      return;
-    }
-    const chg = msg?.c?.[sensorId];
-    if (!chg) return;
-    const plus = chg['+'] || {};
-    const minus = chg['-'] || {};
-    if (plus.s !== undefined) cur.state = plus.s;
-    if (plus.a) Object.assign(cur.attributes, plus.a);
-    for (const k of (minus.a || [])) delete cur.attributes[k];
-    onUpdate();
-  }, { type: 'subscribe_entities', entity_ids: [sensorId] });
-
-  // Safety net: if no events arrive for 90 seconds, clean up.
-  this._progressSafety = setTimeout(() => {
-    if (this._unsubProgress) {
-      try { this._unsubProgress(); } catch {}
-      this._unsubProgress = null;
-    }
-    if (!sawState) {
+  // Limit the wait for the first matching snapshot. Once an active job is
+  // seen, keep listening until terminal state: real print jobs can take
+  // much longer than 90 seconds without changing their sensor attributes.
+  if (!sawMatchingState) {
+    this._progressSafety = setTimeout(() => {
+      if (!isCurrent() || stopped) return;
+      stop();
       this._setStatus('Job submitted (no further updates)', 'ok');
-      setTimeout(() => {
-        if (this._statusEl?.textContent?.startsWith('Job submitted')) {
-          this._setStatus('');
-        }
-      }, 6000);
-    }
-  }, 90_000);
+    }, 90_000);
+  }
+
+  try {
+    unsubscribe = await hass.connection.subscribeMessage((msg) => {
+      if (stopped || !isCurrent()) return;
+      if (msg?.r?.includes(sensorId)) {
+        stop();
+        this._setStatus('Job submitted (printer sensor unavailable)', 'err');
+        return;
+      }
+      const add = msg?.a?.[sensorId];
+      if (add) {
+        cur.state = add.s;
+        cur.attributes = Object.assign({}, add.a || {});
+        onUpdate();
+        return;
+      }
+      const chg = msg?.c?.[sensorId];
+      if (!chg) return;
+      const plus = chg['+'] || {};
+      const minus = chg['-'] || {};
+      if (plus.s !== undefined) cur.state = plus.s;
+      if (plus.a) Object.assign(cur.attributes, plus.a);
+      for (const k of (minus.a || [])) delete cur.attributes[k];
+      onUpdate();
+    }, { type: 'subscribe_entities', entity_ids: [sensorId] });
+  } catch (err) {
+    if (isCurrent()) stop();
+    throw err;
+  }
+  // Initial subscription messages can arrive before the promise resolves.
+  // A terminal update, new upload, or disconnect must close that late handle.
+  if (stopped || !isCurrent()) {
+    try { unsubscribe(); } catch {}
+  } else {
+    this._unsubProgress = unsubscribe;
+  }
 };
 
 window.customCards = window.customCards || [];

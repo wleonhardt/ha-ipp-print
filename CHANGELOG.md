@@ -18,6 +18,12 @@ semver-ish `0.x`.
 - Send an explicit `copies: 1` rather than inheriting the printer's default,
   and reject copy counts above the advertised maximum.
 
+- Close card subscriptions and timers on disconnect, replacement, and early
+  terminal updates; ignore stale progress/cancel callbacks.
+- Keep progress for long jobs past 90 seconds, show paused printing with a
+  cancel button, use live app auth after healing, and reject oversized files
+  before upload.
+
 ### Added
 - `config_entry_id` on job events identifies the printer when job IDs overlap.
 
