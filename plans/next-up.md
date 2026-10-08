@@ -6,6 +6,11 @@
 
 ## Done
 
+- 2026-10-08 — Thorough code review; v0.4.1 fixes prepared locally.
+  [Findings, repairs, verification, and remaining design choices](2026-10-08-code-review.md).
+  126 Python tests / 21 card tests pass; physical printer tests and hosted
+  hassfest/HACS remain unverified. Not tagged or published.
+
 - 2026-10-08 — v0.4.0: multiple printers (#7). `single_config_entry` dropped; service
   `target:`, `entity_id` on both endpoints, card discovers/sends its sensor; sensor entity_id
   derived from device name. Decision: [decisions/2026-10-08-multiple-printers.md](decisions/2026-10-08-multiple-printers.md).
