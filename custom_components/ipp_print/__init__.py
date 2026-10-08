@@ -122,7 +122,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         verify_tls=data.get(CONF_VERIFY_TLS, False),
         relaxed_ciphers=data.get(CONF_RELAXED_CIPHERS, False),
     )
-    coordinator = JobCoordinator(hass, client)
+    coordinator = JobCoordinator(hass, client, entry.entry_id)
 
     # Identity + capabilities. A printer that is off right now must not
     # block setup (endpoints/service still work once it wakes), so failure
@@ -353,6 +353,9 @@ async def _submit(
             f"(supported: {', '.join(info.sides)})",
             400,
         )
+    if copies is not None and info is not None and info.copies_max is not None:
+        if copies > info.copies_max:
+            raise SubmitError(f"printer supports at most {info.copies_max} copies", 400)
 
     try:
         result = await client.print_job(
@@ -379,9 +382,14 @@ async def _submit(
     if result.job_id is None:
         raise SubmitError("printer did not return a job-id", 502)
 
-    coordinator.track(
-        job_id=result.job_id, filename=filename, bytes_sent=len(document)
-    )
+    try:
+        coordinator.track(
+            job_id=result.job_id, filename=filename, bytes_sent=len(document)
+        )
+    except RuntimeError as exc:
+        raise SubmitError(
+            "printer unloaded during submission; the job may have printed", 503
+        ) from exc
     return {
         "ok": True,
         "filename": filename,

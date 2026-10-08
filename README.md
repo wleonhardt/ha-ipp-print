@@ -124,10 +124,10 @@ device (installs from before 0.4.0 keep `sensor.printer_current_job`).
 
 | Field | Value |
 |---|---|
-| state | `idle` / `pending` / `pending-held` / `processing` / `processing-stopped` / `canceled` / `aborted` / `completed` |
+| state | `idle` / `pending` / `pending-held` / `processing` / `processing-stopped` / `canceled` / `aborted` / `completed` / `unknown` |
 | attributes.job_id | IPP-assigned integer |
 | attributes.filename | Submitted filename |
-| attributes.pages_done | `job-media-sheets-completed` (or `job-impressions-completed` fallback) |
+| attributes.pages_done | `job-impressions-completed` (or `job-media-sheets-completed` fallback) |
 | attributes.pages_total | `job-impressions` if the printer reports it |
 | attributes.state_reasons | The printer's IPP `job-state-reasons` |
 | attributes.submitted_at / finished_at | ISO timestamps |
@@ -135,9 +135,13 @@ device (installs from before 0.4.0 keep `sensor.printer_current_job`).
 Bus events you can trigger automations from:
 
 - `ipp_print_job_state_changed` — every observed state change
-- `ipp_print_job_completed` — once per terminal transition (completed / canceled / aborted)
+- `ipp_print_job_completed` — once per terminal transition (completed / canceled / aborted / unknown)
 
-Both carry the full job dict as `event.data`.
+Both carry the full job dict plus `config_entry_id` as `event.data`, so
+automations can distinguish printers with the same job ID. `unknown` means
+the printer purged a job before its final outcome could be observed; it is
+not proof of successful printing. Missing or malformed job attributes are
+retried and eventually reported as `aborted` / `printer-unreachable`.
 
 ### Automation example
 
@@ -151,7 +155,7 @@ automation:
         event_type: ipp_print_job_completed
     conditions:
       - condition: template
-        value_template: "{{ trigger.event.data.state in ['aborted', 'canceled'] }}"
+        value_template: "{{ trigger.event.data.state in ['aborted', 'canceled', 'unknown'] }}"
     actions:
       - action: notify.mobile_app_phone
         data:
@@ -171,7 +175,7 @@ Print a file that lives on the Home Assistant host. The path must be under
 | `path` | Required. Absolute path, e.g. `/config/www/report.pdf` |
 | `document_format` | Optional MIME type. Detected from content (PDF/JPEG/PNG) when omitted. `application/octet-stream` lets the printer auto-sense |
 | `job_name` | Optional. Defaults to the file name |
-| `copies` | Optional, 1–99 |
+| `copies` | Optional, 1–99; checked against the printer’s advertised maximum |
 | `sides` | Optional: `one-sided`, `two-sided-long-edge`, `two-sided-short-edge` (checked against what the printer advertises) |
 | `target` | The printer's job sensor or device. Optional with one printer configured; required with several |
 

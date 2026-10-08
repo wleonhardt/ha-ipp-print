@@ -140,7 +140,7 @@ async def test_device_and_diagnostics(hass):
     diag = await async_get_config_entry_diagnostics(hass, entry)
     assert diag["entry"]["data"]["password"] == "**REDACTED**"
     assert diag["printer"]["make_and_model"] == "Acme LaserJet 1000"
-    assert diag["printer_uri"] == "ipps://127.0.0.1/ipp/print"
+    assert diag["printer_uri"] == "ipps://127.0.0.1:443/ipp/print"
     assert diag["current_job"] is None
 
 

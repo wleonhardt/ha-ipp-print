@@ -25,6 +25,7 @@ JOB_STATES = [
     "canceled",
     "aborted",
     "completed",
+    "unknown",
 ]
 
 

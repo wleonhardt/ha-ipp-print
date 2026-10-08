@@ -319,7 +319,7 @@ C.prototype._upload = async function (file) {
 // The integration's coordinator polls IPP every 1.5s and pushes per-job
 // state through the job sensor's state + attributes; the card follows it.
 const TERMINAL_STATES = new Set([
-  'canceled', 'aborted', 'completed',
+  'canceled', 'aborted', 'completed', 'unknown',
 ]);
 const ACTIVE_STATES = new Set([
   'pending', 'pending-held', 'processing', 'processing-stopped',
@@ -370,6 +370,9 @@ C.prototype._trackPrintProgress = async function (sensorId) {
         'Print failed' + (reason ? `: ${reason}` : ''),
         'err',
       );
+      this._setCancelVisible(false);
+    } else if (state === 'unknown') {
+      this._setStatus('Print outcome unknown (printer removed job)', 'err');
       this._setCancelVisible(false);
     } else {
       this._setCancelVisible(false);

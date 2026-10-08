@@ -111,14 +111,15 @@ async def test_purged_job_after_cancel_reports_canceled(hass):
     assert completed[0].data["state"] == "canceled"
 
 
-async def test_purged_job_without_cancel_reports_completed(hass):
+async def test_purged_job_without_cancel_reports_unknown(hass):
     client = FakeClient([_attrs(5), JobGoneError("gone")])
     coord = JobCoordinator(hass, client)
     completed = async_capture_events(hass, coord_mod.EVENT_JOB_COMPLETED)
 
     coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
     await _wait_for(lambda: len(completed) == 1)
-    assert completed[0].data["state"] == "completed"
+    assert completed[0].data["state"] == "unknown"
+    assert completed[0].data["state_reasons"] == "job-outcome-unknown"
 
 
 async def test_attrs_missing_is_debounced(hass):
@@ -132,15 +133,15 @@ async def test_attrs_missing_is_debounced(hass):
     assert client.calls >= 3
 
 
-async def test_attrs_missing_twice_marks_completed(hass):
-    # ...but two in a row means the printer really purged the job.
+async def test_attrs_missing_eventually_gives_up(hass):
+    # Missing attributes provide no proof of completion.
     client = FakeClient([None])
     coord = JobCoordinator(hass, client)
     completed = async_capture_events(hass, coord_mod.EVENT_JOB_COMPLETED)
     coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
     await _wait_for(lambda: len(completed) == 1)
-    assert completed[0].data["state"] == "completed"
-    assert client.calls == coord_mod.GONE_DEBOUNCE
+    assert completed[0].data["state"] == "aborted"
+    assert client.calls == coord_mod.MAX_POLL_FAILURES
 
 
 async def test_shutdown_cancels_poll_task(hass):
@@ -162,3 +163,53 @@ async def test_knows_only_tracked_jobs(hass):
     assert coord.knows(7)
     assert not coord.knows(999)
     await coord.async_shutdown()
+
+
+async def test_rejected_cancel_does_not_change_purge_outcome(hass):
+    client = FakeClient([JobGoneError("gone")])
+    client.cancel_status = 0x0401
+    coord = JobCoordinator(hass, client)
+    job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    assert not await coord.async_cancel(7)
+    assert not job.cancel_requested
+    await _wait_for(job.is_terminal)
+    assert job.state == "unknown"
+    await coord.async_shutdown()
+
+
+async def test_wrong_job_response_cannot_complete_tracked_job(hass, monkeypatch):
+    monkeypatch.setattr(coord_mod, "MAX_POLL_FAILURES", 2)
+    coord = JobCoordinator(hass, FakeClient([_attrs(9, job_id=99)]))
+    job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    await _wait_for(job.is_terminal)
+    assert job.state == "aborted"
+    await coord.async_shutdown()
+
+
+async def test_impressions_counter_matches_total_and_preserves_zero(hass):
+    coord = JobCoordinator(hass, FakeClient([_attrs(5)]))
+    job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    attrs = _attrs(5, done=0, total=4)
+    attrs.media_sheets_completed = 2
+    coord._apply_attrs(job, attrs)
+    assert job.pages_done == 0
+    attrs.impressions_completed = 4
+    coord._apply_attrs(job, attrs)
+    assert job.pages_done == job.pages_total == 4
+    await coord.async_shutdown()
+
+
+async def test_events_identify_printer(hass):
+    coord = JobCoordinator(hass, FakeClient([_attrs(9)]), entry_id="office")
+    completed = async_capture_events(hass, coord_mod.EVENT_JOB_COMPLETED)
+    coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    await _wait_for(lambda: len(completed) == 1)
+    assert completed[0].data["config_entry_id"] == "office"
+    await coord.async_shutdown()
+
+
+async def test_shutdown_refuses_new_tracking(hass):
+    coord = JobCoordinator(hass, FakeClient([_attrs(5)]))
+    await coord.async_shutdown()
+    with pytest.raises(RuntimeError, match="unloaded"):
+        coord.track(job_id=7, filename="x.pdf", bytes_sent=10)

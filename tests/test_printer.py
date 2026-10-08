@@ -101,7 +101,7 @@ def test_parse_job_attrs_1setof_carries_name():
     )
     attrs = p.parse_job_attrs_response(_resp(0x0000, _job_group(7, 3, extra)))
     assert attrs is not None
-    assert attrs.job_state_reasons == "none"  # first value wins
+    assert attrs.job_state_reasons == "none,job-incoming"
 
 
 def test_parse_job_attrs_not_found_raises_job_gone():
@@ -122,10 +122,9 @@ def test_parse_response_too_short_raises():
 
 
 def test_parse_truncated_attributes_terminates():
-    # Garbage/truncated payload must neither hang nor crash.
     data = _resp(0x0000)[:-1] + b"\x42\x00\xff"
-    status, attrs = p.parse_response(data)
-    assert status == 0
+    with pytest.raises(ValueError, match="truncated"):
+        p.parse_response(data)
 
 
 def test_ipp_http_error_messages():
@@ -149,14 +148,13 @@ def test_build_print_job_job_template_group():
     assert req.index(b"copies") < req.index(bytes([p.TAG_END_ATTRS]) + b"%PDF-x")
 
 
-def test_build_print_job_omits_group_without_options():
+def test_build_print_job_sends_explicit_single_copy():
     req = p.build_print_job(
         printer_uri="ipp://h/ipp/print", user="u", job_name="a",
         document_format="application/pdf", document=b"", copies=1,
     )
-    # Operation group runs straight into end-of-attributes: no job group.
-    assert req.endswith(b"application/pdf" + bytes([p.TAG_END_ATTRS]))
-    assert b"copies" not in req
+    _, attrs = p.parse_response(req)
+    assert attrs["copies"] == [1]
 
 
 def test_build_get_printer_attrs_requested_1setof():
@@ -212,5 +210,55 @@ def test_client_url_uses_path_and_port():
     assert c._url == "http://h:631/printers/office"
     assert c.web_url == "http://h:631/"
     c2 = p.PrinterClient(host="h", port=443, use_tls=True)
-    assert c2.printer_uri == "ipps://h/ipp/print"
+    assert c2.printer_uri == "ipps://h:443/ipp/print"
     assert c2.web_url == "https://h/"
+
+
+@pytest.mark.parametrize("body", [
+    b"\x02\x00\x00\x00\x00\x00\x00\x01",  # no end marker
+    b"<html>bad gateway</html>",
+    _resp(0, bytes([JOB_GROUP]) + p._attr(p.TAG_INTEGER, b"job-id", b"\x07")),
+    _resp(0, bytes([JOB_GROUP]) + p._attr(p.TAG_BOOLEAN, b"x", b"\x02")),
+    _resp(0, bytes([JOB_GROUP]) + p._attr(p.TAG_RANGE_OF_INTEGER, b"x", b"\x01")),
+    _resp(0, _job_group())[:-2],
+])
+def test_malformed_responses_rejected(body):
+    with pytest.raises(ValueError):
+        p.parse_response(body)
+
+
+def test_error_status_with_job_attributes_rejected():
+    with pytest.raises(p.IppError):
+        p.parse_job_attrs_response(_resp(0x0500, _job_group()))
+
+
+@pytest.mark.parametrize("state", [0, 10, -1])
+def test_invalid_job_states_rejected(state):
+    with pytest.raises(p.IppError):
+        p.parse_job_attrs_response(_resp(0, _job_group(state=state)))
+
+
+@pytest.mark.parametrize("job_id", [0, -1])
+def test_invalid_submission_job_id_not_tracked(job_id):
+    assert p.parse_print_job_response(_resp(0, _job_group(job_id=job_id))).job_id is None
+
+
+@pytest.mark.parametrize("host,port,tls,authority", [
+    ("h", 443, False, "h:443"),
+    ("h", 80, True, "h:80"),
+    ("2001:db8::1", 631, False, "[2001:db8::1]:631"),
+    ("[2001:db8::1]", 443, True, "[2001:db8::1]:443"),
+])
+def test_client_preserves_port_and_ipv6(host, port, tls, authority):
+    client = p.PrinterClient(host=host, port=port, use_tls=tls)
+    assert client._url == f"{'https' if tls else 'http'}://{authority}/ipp/print"
+    assert client.printer_uri == f"{'ipps' if tls else 'ipp'}://{authority}/ipp/print"
+    if port != (443 if tls else 80):
+        assert client.web_url == f"{'https' if tls else 'http'}://{authority}/"
+
+
+async def test_closed_client_cannot_reopen_session():
+    client = p.PrinterClient(host="h", use_tls=False)
+    await client.async_close()
+    with pytest.raises(p.IppError, match="unloaded"):
+        await client._get_session()

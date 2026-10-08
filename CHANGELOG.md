@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.4.1] - 2026-10-08
+
+### Fixed
+- Preserve configured ports in printer URLs and support IPv6 literals.
+- Reject truncated/malformed IPP responses, invalid job IDs/states, error
+  statuses carrying job attributes, and responses for the wrong job.
+- A purged job with no observed final state reports `unknown` instead of
+  claiming successful printing. Missing attributes are retried to the failure cap.
+- Serialize cancellation with polling; only an accepted Cancel-Job records
+  cancel intent. Refuse cancel for terminal jobs and tracking after unload.
+- Match impression progress to impression totals, preserving zero counts.
+- Send an explicit `copies: 1` rather than inheriting the printer's default,
+  and reject copy counts above the advertised maximum.
+
+### Added
+- `config_entry_id` on job events identifies the printer when job IDs overlap.
+
 ## [0.4.0] - 2026-10-08
 
 ### Added
@@ -143,3 +160,6 @@ Initial release.
 [0.1.2]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/wleonhardt/ha-ipp-print/releases/tag/v0.1.0
+
+[0.4.1]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/wleonhardt/ha-ipp-print/compare/v0.3.0...v0.4.0

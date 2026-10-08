@@ -216,7 +216,7 @@ def build_print_job(
     )
     # Job-template attributes live in their own group (RFC 8011 §4.2.1).
     job_attrs = b""
-    if copies is not None and copies > 1:
+    if copies is not None:
         job_attrs += _attr(TAG_INTEGER, b"copies", _int_value(copies))
     if sides:
         job_attrs += _attr(TAG_KEYWORD, b"sides", sides.encode())
@@ -272,23 +272,35 @@ def _parse_attributes(data: bytes, offset: int) -> tuple[dict[str, list], int]:
             # Begin-attribute-group delimiter; reset name carry.
             current_name = None
             continue
+        if i + 2 > n:
+            raise ValueError("truncated IPP attribute name length")
         name_len = int.from_bytes(data[i : i + 2], "big")
         i += 2
+        if i + name_len + 2 > n:
+            raise ValueError("truncated IPP attribute name")
         name = (
             data[i : i + name_len].decode("utf-8", "replace") if name_len else None
         )
         i += name_len
         value_len = int.from_bytes(data[i : i + 2], "big")
         i += 2
+        if i + value_len > n:
+            raise ValueError("truncated IPP attribute value")
         raw = data[i : i + value_len]
         i += value_len
 
         value: int | str | bool | tuple
         if tag in (TAG_INTEGER, TAG_ENUM):
+            if len(raw) != 4:
+                raise ValueError("IPP integer/enum must contain four bytes")
             value = int.from_bytes(raw, "big", signed=True)
         elif tag == TAG_BOOLEAN:
+            if raw not in (b"\x00", b"\x01"):
+                raise ValueError("invalid IPP boolean")
             value = bool(raw and raw[0])
-        elif tag == TAG_RANGE_OF_INTEGER and len(raw) == 8:
+        elif tag == TAG_RANGE_OF_INTEGER:
+            if len(raw) != 8:
+                raise ValueError("IPP integer range must contain eight bytes")
             value = (
                 int.from_bytes(raw[:4], "big", signed=True),
                 int.from_bytes(raw[4:], "big", signed=True),
@@ -301,13 +313,15 @@ def _parse_attributes(data: bytes, offset: int) -> tuple[dict[str, list], int]:
         if current_name is None:
             continue
         attrs.setdefault(current_name, []).append(value)
-    return attrs, i
+    raise ValueError("IPP response missing end-of-attributes")
 
 
 def parse_response(data: bytes) -> tuple[int, dict[str, list]]:
     """Return (ipp-status-code, flattened attributes dict)."""
     if len(data) < 8:
         raise ValueError(f"IPP response too short: {len(data)} bytes")
+    if data[:2] not in (b"\x01\x00", b"\x01\x01", b"\x02\x00", b"\x02\x01", b"\x02\x02"):
+        raise ValueError("invalid IPP response version")
     status = int.from_bytes(data[2:4], "big")
     attrs, _ = _parse_attributes(data, 8)
     return status, attrs
@@ -319,7 +333,7 @@ def parse_print_job_response(data: bytes) -> JobSubmissionResult:
     job_state = attrs.get("job-state", [None])[0]
     return JobSubmissionResult(
         ipp_status=status,
-        job_id=int(job_id) if isinstance(job_id, int) else None,
+        job_id=job_id if type(job_id) is int and job_id > 0 else None,
         job_state=int(job_state) if isinstance(job_state, int) else None,
         job_state_name=(
             JOB_STATE_NAMES.get(int(job_state))
@@ -342,17 +356,19 @@ def parse_job_attrs_response(data: bytes) -> JobAttributes | None:
     if status == STATUS_NOT_FOUND:
         raise JobGoneError(f"job not found (ipp_status=0x{status:04x})")
     if status not in (0x0000, 0x0001, 0x0002):
-        _LOGGER.debug("Get-Job-Attributes returned IPP status 0x%04x", status)
+        raise IppError(f"Get-Job-Attributes failed (ipp_status=0x{status:04x})")
     job_id = attrs.get("job-id", [None])[0]
     job_state = attrs.get("job-state", [None])[0]
-    if not isinstance(job_id, int) or not isinstance(job_state, int):
+    if type(job_id) is not int or type(job_state) is not int:
         return None
-    reasons = attrs.get("job-state-reasons", [None])[0]
+    if job_id <= 0 or job_state not in JOB_STATE_NAMES:
+        raise IppError("invalid job-id or job-state in IPP response")
+    reasons = _all_str(attrs, "job-state-reasons")
     return JobAttributes(
         job_id=int(job_id),
         job_state=int(job_state),
         job_state_name=JOB_STATE_NAMES.get(int(job_state), f"unknown-{job_state}"),
-        job_state_reasons=str(reasons) if reasons else None,
+        job_state_reasons=",".join(reasons) if reasons else None,
         impressions_completed=_first_int(attrs, "job-impressions-completed"),
         media_sheets_completed=_first_int(attrs, "job-media-sheets-completed"),
         impressions_total=_first_int(attrs, "job-impressions"),
@@ -370,9 +386,9 @@ def parse_printer_attrs_response(data: bytes) -> PrinterInfo:
     copies_max: int | None = None
     for v in copies:
         if isinstance(v, tuple):
-            copies_max = v[1]
+            copies_max = max(copies_max or 0, v[1])
         elif isinstance(v, int):
-            copies_max = v
+            copies_max = max(copies_max or 0, v)
     return PrinterInfo(
         name=_first_str(attrs, "printer-name"),
         info=_first_str(attrs, "printer-info"),
@@ -455,12 +471,16 @@ class PrinterClient:
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: aiohttp.ClientSession | None = None
         self._session_lock = asyncio.Lock()
+        self._closed = False
         scheme = "https" if use_tls else "http"
-        port_suffix = "" if port in (80, 443) else f":{port}"
-        self._url = f"{scheme}://{host}{port_suffix}{self._path}"
+        # Keep the configured port explicit: HTTP(S) and IPP(S) do not
+        # necessarily have the same default port. Bracket IPv6 literals.
+        authority_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+        authority = f"{authority_host}:{port}"
+        self._url = f"{scheme}://{authority}{self._path}"
         # IPP URIs are always `ipp://` or `ipps://`, never http/https.
         ipp_scheme = "ipps" if use_tls else "ipp"
-        self._uri = f"{ipp_scheme}://{host}{port_suffix}{self._path}"
+        self._uri = f"{ipp_scheme}://{authority}{self._path}"
 
     @property
     def host(self) -> str:
@@ -474,8 +494,12 @@ class PrinterClient:
     def web_url(self) -> str:
         """Best-guess URL of the printer's embedded web UI."""
         scheme = "https" if self._use_tls else "http"
-        port_suffix = "" if self._port in (80, 443) else f":{self._port}"
-        return f"{scheme}://{self._host}{port_suffix}/"
+        authority_host = (
+            f"[{self._host}]" if ":" in self._host and not self._host.startswith("[")
+            else self._host
+        )
+        port_suffix = "" if self._port == (443 if self._use_tls else 80) else f":{self._port}"
+        return f"{scheme}://{authority_host}{port_suffix}/"
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Lazily create the shared session (keep-alive connections).
@@ -483,9 +507,13 @@ class PrinterClient:
         The SSL context does blocking work (cipher setup, CA loading), so it
         is built in an executor exactly once — never on the event loop.
         """
+        if self._closed:
+            raise IppError("printer connection has been unloaded")
         if self._session is not None and not self._session.closed:
             return self._session
         async with self._session_lock:
+            if self._closed:
+                raise IppError("printer connection has been unloaded")
             if self._session is not None and not self._session.closed:
                 return self._session
             if self._use_tls:
@@ -507,9 +535,11 @@ class PrinterClient:
 
     async def async_close(self) -> None:
         """Release the pooled session/connections."""
-        if self._session is not None:
-            await self._session.close()
-            self._session = None
+        async with self._session_lock:
+            self._closed = True
+            if self._session is not None:
+                await self._session.close()
+                self._session = None
 
     async def _post_ipp(self, body: bytes, *, timeout: float | None = None) -> bytes:
         auth = (
