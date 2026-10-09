@@ -5,7 +5,8 @@
 - Paired activity expansion fixed in both live dashboards using one built-in
   Vertical stack per card. Tile, Mushroom and standalone layouts pass independent
   expansion checks at 320/390/768 px; all 610 tests pass. Examples updated;
-  scan 0.12.0 / print 0.11.0 runtime stays unchanged. Phone confirmation pending.
+  scan 0.12.0 / print 0.11.0 runtime stays unchanged. The user confirmed the
+  layout looks good and expansion is smooth on the phone; acceptance is complete.
   [Layout validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/card-independent-expansion-2026-10-09.md).
 
 - Paired alignment/device identity polish installed as print 0.10.3 / scan
