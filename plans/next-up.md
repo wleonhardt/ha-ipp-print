@@ -24,6 +24,9 @@
   download also pass. Color duplex job 369 printed two numbered sheets; manual
   scanning returned 1F,1B,2F,2B upright with matching downloads. Release tags remain.
   User confirmed both new Options dialogs fit and work on the phone.
+  Job 370 then tested two copies with short-edge duplex through the live card:
+  Letter/automatic tray/monochrome/normal, completed 4/4 impressions without a
+  warning; filename cleared. Physical sheet count/orientation confirmation pending.
 
 ## Done
 
