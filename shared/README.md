@@ -1,7 +1,7 @@
-# Document card presentation core v2
+# Document card presentation core v3
 
 Canonical source: `ha-escl-scan/shared/card-core.js`. This identical vendored copy
-owns localization, base styles, safe status details and the native Options dialog.
+owns localization, base styles, safe status details the native Options dialog and native feature adapter/styles.
 Domain-specific job state, options, capabilities and transport remain in card.js.
 Each card registers its main element first and includes the core inline. There
 is no runtime dependency, additional fetch or required build step for installation.

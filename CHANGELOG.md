@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.10.0] - 2026-10-09
+
+### Added
+- Optional `custom:ipp-print-feature` for native Tile and current Mushroom Template
+  cards. The host owns the title/surface; the feature reuses the existing workflow,
+  visible Two-sided switch, Options dialog, progress and recovery behavior.
+- Native feature picker, visual defaults editor and paired examples. Modern host
+  context and legacy entity delivery are supported; unrelated/area-only hosts
+  and inline placement show configuration guidance without device actions.
+
+### Changed
+- Shared presentation core v3 includes the native host adapter without additional
+  assets or dependencies. Existing standalone card configurations remain supported.
+- A feature follows only its parent's job sensor. Changing that sensor discards
+  staged files and detaches old replies; control gestures do not trigger host actions.
+
 ## [0.9.1] - 2026-10-09
 
 ### Fixed

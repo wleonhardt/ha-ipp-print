@@ -402,6 +402,45 @@ logger:
 - **HP LaserJets:** several models (M283fdw, M227, etc.) only offer non-PFS
   TLS ciphers. Enable "Allow legacy cipher suites" in the config flow.
 
+## Optional native dashboard feature
+
+The existing standalone card remains supported. For a native shell, use a Tile
+card with **IPP Print** from its Features picker, or paste:
+
+```yaml
+type: tile
+entity: sensor.printer_current_job
+name: Print
+icon: mdi:printer
+hide_state: true
+tap_action:
+  action: none
+icon_tap_action:
+  action: none
+features_position: bottom
+grid_options:
+  columns: 6
+  rows: auto
+features:
+  - type: custom:ipp-print-feature
+    duplex: false
+```
+
+Choose this integration's **Current job** sensor on the parent card.
+The feature inherits that device; it has no separate entity or title setting.
+Keep **Features position: Bottom** and **Rows: Auto** in Sections so filenames,
+errors and manual instructions can expand. Inline placement is unsupported.
+Two-sided stays visible by default; feature defaults are editable in the native
+feature editor. Options and browser Back use the same dialog as the standalone
+card. Changing the parent device clears local staged content.
+
+The [Mushroom example](examples/dashboard-mushroom.yaml) uses the current
+Template card, not Legacy Template. No Mushroom dependency is required for Tile
+or standalone cards. See the [paired native Sections example](https://github.com/wleonhardt/ha-escl-scan/blob/main/examples/dashboard-native-sections.yaml).
+Native examples are opt-in while physical Android acceptance is completed;
+existing dashboards are never migrated automatically. Host verification and
+limits are recorded in the [Phase 5 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-5-validation.md).
+
 ## Development
 
 ```

@@ -2,9 +2,9 @@
 
 ## Queue
 
-- Next: Phase 5 native Tile and optional Mushroom features. Validate declared
-  minimum/current HA hosts and Android registration before recommending migration;
-  retain standalone cards. External hardware coverage remains separate.
+- Active: Phase 5 native Tile and optional Mushroom features, print 0.10.0 /
+  scan 0.11.0. Minimum/current host checks and 572 paired tests pass; installed.
+  Hosted checks, release publication and physical Android acceptance remain. Standalone cards stay supported.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
 
 ## Done

@@ -53,7 +53,7 @@ afterEach(() => {
   windows.clear();
 });
 
-function boot(translations = {}) {
+function boot(translations = {}, setup) {
   const dom = new JSDOM('<home-assistant></home-assistant>', {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
@@ -66,6 +66,7 @@ function boot(translations = {}) {
     this.open = false;
     dom.window.setTimeout(() => this.dispatchEvent(new dom.window.Event('close')), 0);
   };
+  setup?.(dom.window);
   dom.window.eval(CARD_SRC + '\nObject.assign(CARD_TRANSLATIONS, ' + JSON.stringify(translations) + ');');
   return dom.window;
 }
@@ -954,4 +955,155 @@ test('growing HP totals never make active progress look complete', () => {
   assert.equal(el._statusEl.textContent, 'Print complete ✓ (4 pages)');
   push(el, hass, 'processing', { ...attrs, job_id: 372, progress_unit: 'sheets', pages_done: 1, pages_total: 8 });
   assert.equal(el._statusEl.textContent, 'Printing… 1 sheet printed');
+});
+
+
+// Native host adapter: these exercise routing/lifetime, not CSS implementation.
+const FEATURE = 'ipp-print-feature';
+function featureFixture(win, options = {}) {
+  const other = 'sensor.another_device';
+  const ids = [SENSOR, other];
+  const calls = [];
+  const hass = {
+    connected: true,
+    entities: Object.fromEntries(ids.map(id => [id, { entity_id: id, platform: 'ipp_print' }])),
+    states: Object.fromEntries(ids.map(id => [id, { entity_id: id, state: 'idle', attributes: {} }])),
+    fetchWithAuth: async (url, init) => {
+      if (url.includes('/capabilities?')) return jsonResponse(optionCaps(new URL(url, 'http://fixture').searchParams.get('entity_id')));
+      calls.push({ url, init });
+      return options.fetchImpl ? options.fetchImpl(url, init) : jsonResponse({ scan_id: 'native-scan', job_id: 401 });
+    },
+  };
+  const feature = win.document.createElement(FEATURE);
+  feature.setConfig({ type: 'custom:' + FEATURE });
+  win.document.body.append(feature);
+  feature.hass = hass;
+  feature.context = { entity_id: SENSOR };
+  return { feature, hass, calls, other };
+}
+
+test('native feature registers independently and edits defaults without host identity', () => {
+  const win = boot();
+  const F = win.customElements.get(FEATURE);
+  assert.equal(F.getStubConfig().type, 'custom:' + FEATURE);
+  assert.equal(F.getStubConfig().duplex, false);
+  const entry = win.customCardFeatures.find(item => item.type === FEATURE);
+  assert.equal(entry.configurable, true);
+  const { feature, hass } = featureFixture(win);
+  assert.equal(entry.isSupported(hass, { entity_id: SENSOR }), true);
+  assert.equal(entry.isSupported(hass, { area_id: 'office' }), false);
+  assert.equal(entry.isSupported(hass, { entity_id: 'light.lamp' }), false);
+  assert.equal(entry.isSupported({ ...hass, entities: { [SENSOR]: { platform: 'unrelated' } } }, { entity_id: SENSOR }), false);
+  assert.throws(() => feature.setConfig({ entity: SENSOR }), /parent card/);
+  assert.throws(() => feature.setConfig({ duplex: 'yes' }));
+  const editor = F.getConfigElement();
+  editor.setConfig(F.getStubConfig()); editor.hass = hass;
+  const form = editor.querySelector('ha-form');
+  assert.ok(form.schema.some(field => field.name === 'duplex'));
+  assert.ok(form.schema.every(field => !['entity', 'title'].includes(field.name)));
+  let changed;
+  editor.addEventListener('config-changed', event => { changed = event.detail.config; });
+  form.dispatchEvent(new win.CustomEvent('value-changed', { detail: { value: { duplex: true } } }));
+  assert.equal(changed.type, 'custom:' + FEATURE);
+  assert.equal(changed.duplex, true);
+  assert.equal(feature._workflow.shadowRoot.querySelector('ha-card'), null);
+});
+
+test('native feature supports legacy entity delivery but empty modern context stays authoritative', () => {
+  const win = boot();
+  const { feature, hass } = featureFixture(win);
+  const legacy = win.document.createElement(FEATURE);
+  legacy.setConfig({}); legacy.stateObj = hass.states[SENSOR]; legacy.hass = hass;
+  win.document.body.append(legacy);
+  assert.equal(legacy._workflow._config.entity, SENSOR);
+  legacy.context = {};
+  legacy.stateObj = hass.states[SENSOR];
+  assert.equal(legacy._workflow, null);
+  assert.match(legacy.shadowRoot.textContent, /Select an/);
+  feature.position = 'inline';
+  assert.equal(feature._workflow, null);
+  assert.match(feature.shadowRoot.textContent, /Bottom/);
+  feature.position = 'bottom';
+  assert.equal(feature._workflow._config.entity, SENSOR);
+});
+
+test('native feature preserves local intent across state pushes and remount without starting work', async () => {
+  const win = boot();
+  const { feature, hass, calls } = featureFixture(win);
+  const workflow = feature._workflow;
+  await workflow._refreshOptions();
+  workflow._twoSidedEl.click();
+  feature.hass = { ...hass };
+  feature.context = { entity_id: SENSOR };
+  feature.stateObj = hass.states[SENSOR];
+  feature.remove(); win.document.body.append(feature);
+  assert.equal(feature._workflow, workflow);
+  assert.equal(workflow._twoSidedEl.checked, true);
+  assert.equal(calls.length, 0);
+  let bubbled = 0;
+  feature.addEventListener('click', () => { bubbled++; });
+  workflow._twoSidedEl.click();
+  assert.equal(bubbled, 0);
+});
+
+test('native target change during submission detaches old replies and never carries intent to new device', async () => {
+  const win = boot();
+  let finish;
+  const { feature, hass, calls, other } = featureFixture(win, {
+    fetchImpl: () => new Promise(resolve => { finish = resolve; }),
+  });
+  const workflow = feature._workflow;
+  workflow._stageFile(new win.File(['PDF'], 'test.pdf', { type: 'application/pdf' }));
+  workflow._primaryEl.click(); workflow._primaryEl.click();
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].init.body.get('entity_id'), SENSOR);
+  feature.context = { entity_id: other };
+  const next = feature._workflow;
+  assert.notEqual(next, workflow);
+  assert.equal(next._config.entity, other);
+  assert.ok(!next._stagedFile);
+  finish(jsonResponse({ scan_id: 'old-reply', job_id: 402 }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.ok(!next._activeScanId && next._activeJobId == null);
+  assert.equal(calls.length, 1);
+  feature.hass = { ...hass, connected: false };
+  assert.equal(next._primaryEl.disabled, true);
+  feature.hass = { ...hass, connected: true };
+  assert.equal(next._primaryEl.disabled, false);
+});
+
+test('native print locks its parent device and retains staged file only for that host', async () => {
+  const win = boot();
+  const { feature, hass, other, calls } = featureFixture(win);
+  const workflow = feature._workflow;
+  await workflow._refreshOptions();
+  assert.equal(workflow._optionFields.entity_id.disabled, true);
+  assert.equal(workflow._optionFields.entity_id.closest('label').hidden, true);
+  workflow._stageFile(file(win, 'local.pdf', 'application/pdf'));
+  await tick();
+  feature.hass = { ...hass }; feature.context = { entity_id: SENSOR };
+  assert.equal(feature._workflow._stagedFile.name, 'local.pdf');
+  assert.equal(calls.length, 0);
+  feature.context = { entity_id: other };
+  assert.ok(!feature._workflow._stagedFile);
+  assert.equal(calls.length, 0);
+});
+
+
+test('native editor excludes host identity even when an older standalone editor loaded first', () => {
+  const win = boot({}, window => {
+    window.customElements.define(TAG + '-editor', class extends window.HTMLElement {
+      setConfig(config) { this._config = config; this._render(); }
+      set hass(hass) { this._hass = hass; this._render(); }
+      _render() {
+        if (!this._form) { this._form = window.document.createElement('ha-form'); this.append(this._form); }
+        this._form.schema = ['title','entity','duplex'].map(name => ({ name }));
+      }
+    });
+  });
+  const F = win.customElements.get(FEATURE), editor = F.getConfigElement();
+  editor.setConfig(F.getStubConfig()); editor.hass = { states: {} };
+  assert.equal(editor.localName, FEATURE + '-editor');
+  assert.deepEqual(Array.from(editor.querySelector('ha-form').schema, field => field.name), ['duplex']);
 });
