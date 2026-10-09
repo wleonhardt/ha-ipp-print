@@ -9,6 +9,13 @@
 
 ## Done
 
+- 2026-10-09 — v0.9.1 released and installed after real HP job 371 showed a
+  provisional 2/2 impression total during a four-side print. The card now shows
+  completed pages/sheets while active, reserving completion for the terminal
+  state. 217 Python + 54 card tests, Ruff, compileall, all six hosted checks and
+  release workflow pass. Physical paired scan/connection checks are in progress.
+  [Live-test record](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/phase-4-hp-live-tests-2026-10-09.md).
+
 - 2026-10-09 — Phase 4 released and installed as print 0.9.0 / scan 0.10.0.
   Pushed job recovery, submission-scoped cancellation, truthful counters/outcomes,
   native protocol connection sensor and shared presentation core v2. 559 paired
