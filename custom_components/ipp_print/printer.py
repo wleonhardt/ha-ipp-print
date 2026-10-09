@@ -60,6 +60,14 @@ class IppError(Exception):
     """Base for printer communication errors."""
 
 
+class IppStatusError(IppError):
+    """A decoded IPP rejection, with its status available without parsing text."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 class IppHttpError(IppError):
     """Printer answered with a non-200 HTTP status."""
 
@@ -433,7 +441,7 @@ def parse_printer_attrs_response(data: bytes) -> PrinterInfo:
     response = decode_response(data)
     status, attrs = response.status, response.attributes((1, 4))
     if status not in (0x0000, 0x0001, 0x0002):
-        raise IppError(f"Get-Printer-Attributes failed (ipp_status=0x{status:04x})")
+        raise IppStatusError(f"Get-Printer-Attributes failed (ipp_status=0x{status:04x})", status)
     return _printer_info_from_attributes(attrs)
 
 
@@ -731,7 +739,10 @@ class PrinterClient:
                 raw = await self._probe(req)
                 parsed = decode_response(raw)
                 if parsed.status not in (0, 1, 2):
-                    raise IppError(f"format capability probe failed (ipp_status=0x{parsed.status:04x})")
+                    raise IppStatusError(
+                        f"format capability probe failed (ipp_status=0x{parsed.status:04x})",
+                        parsed.status,
+                    )
                 if response is None:
                     response = parsed
                 else:

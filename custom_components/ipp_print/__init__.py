@@ -60,6 +60,7 @@ from .const import (
 from .capability_cache import CapabilityCache
 from .capabilities import capability_snapshot, validate_copies
 from .connection import DeviceConnection
+from .diagnostics import record_blocked_format_probe
 from .coordinator import JobCoordinator
 from .printer import SIDES, IppError, IppHttpError, PrinterClient, PrinterInfo, media_dimensions
 
@@ -450,6 +451,7 @@ async def _submit(
         format_cache = await _format_cache(live, document_format)
         info = live["printer_info"] = await format_cache.async_get(fresh=True)
         if format_cache.metadata()["status"] != "fresh" or format_cache.closed:
+            record_blocked_format_probe(live, document_format, format_cache)
             raise SubmitError(
                 "cannot read the printer's current format and paper settings; "
                 "check its connection. No print job was submitted", 502,

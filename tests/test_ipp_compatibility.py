@@ -92,6 +92,17 @@ async def test_transport_failure_does_not_probe_another_version():
         post.assert_awaited_once()
 
 
+@pytest.mark.parametrize("document_format", [None, "image/jpeg"])
+async def test_capability_rejection_retains_ipp_status(document_format):
+    client = p.PrinterClient(host="example")
+    with patch.object(client, "_post_ipp", AsyncMock(return_value=_resp(0x040A))) as post:
+        with pytest.raises(p.IppStatusError) as failure:
+            await GET_ATTRS(client, document_format)
+    assert failure.value.status == 0x040A
+    assert "ipp_status=0x040a" in str(failure.value)
+    post.assert_awaited_once()
+
+
 async def test_validation_sends_no_document_and_unsupported_fallback_is_remembered():
     client = p.PrinterClient(host="example")
     with patch.object(client, "_post_ipp", AsyncMock(return_value=_resp(0x0501))) as post:

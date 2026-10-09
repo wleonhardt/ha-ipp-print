@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.11.2] - 2026-10-09
+
+### Added
+- Include capability-query freshness and the most recent redacted lookup failure
+  in the existing diagnostics download, separately for each printer and format.
+  Preserve its time, duration, category and HTTP/IPP status after recovery.
+- Record the latest print attempt blocked by unavailable format/paper settings,
+  with confirmation that it stopped before submission. Evidence is bounded and
+  held in memory until reload/restart; no raw errors or document content are saved.
+
 ## [0.11.1] - 2026-10-09
 
 ### Fixed

@@ -101,3 +101,15 @@ async def test_probe_timeout_is_bounded_and_cached(monkeypatch):
     assert await cache.async_get() is None
     fetch.assert_awaited_once()
     assert cache.failed
+    assert cache.diagnostic_snapshot()["last_failure"]["category"] == "timeout"
+
+
+async def test_cancellation_does_not_invent_failure_evidence():
+    fetch = AsyncMock(side_effect=[TimeoutError("private"), asyncio.CancelledError()])
+    cache = module.CapabilityCache(fetch)
+    await cache.async_get()
+    previous = cache.diagnostic_snapshot()["last_failure"]
+    cache._retry_at = 0
+    with pytest.raises(asyncio.CancelledError):
+        await cache.async_get(fresh=True)
+    assert cache.diagnostic_snapshot()["last_failure"] == previous

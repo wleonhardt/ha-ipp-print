@@ -2,6 +2,11 @@
 
 ## Queue
 
+- JPEG settings-failure diagnostics approved and implemented for 0.11.2;
+  validation/release in progress. Bounded in-memory evidence through the existing
+  diagnostic download; no new settings, dependencies or submission retries.
+  [Plan and validation](2026-10-09-jpeg-diagnostics.md).
+
 - Native cards promoted to the main Printer dashboard at the user's request;
   connection tiles, page chip and navigation preserved. Original rollout complete.
   Compatibility follow-up released/installed as Scan 0.12.1 / Print 0.11.1:

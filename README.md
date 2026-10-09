@@ -393,8 +393,19 @@ through this integration can be cancelled (unknown ids return 404).
 | Printer not discovered | It must advertise `_ipp._tcp`/`_ipps._tcp` on the same L2 network as HA. Add it manually otherwise. |
 
 Attach a diagnostics download (device page → ⋮ → Download diagnostics) to
-bug reports; it includes the printer's advertised capabilities with the
-password redacted.
+bug reports. It includes redacted capabilities, connection status, and generic
+and per-format capability-query freshness. Each query cache keeps one recent
+failure's time, duration, category and HTTP/IPP status, even after a later success.
+The latest print attempt blocked by unavailable format/paper settings includes
+its own snapshot and `job_may_exist: false`; this record covers that pre-upload
+gate, not every possible print failure or the current job's outcome.
+
+For an intermittent JPEG settings error, download diagnostics before reloading
+the integration or restarting HA. Evidence is kept only in memory (one generic
+cache, at most eight format caches and one blocked-attempt snapshot). Normal
+cache eviction can remove a format's record. Diagnostic downloads make no device
+requests, and these records contain no raw error text, addresses, credentials,
+filenames or document bytes. No retry, timeout or submission policy is changed.
 
 Enable debug logging for the wire-level detail:
 
