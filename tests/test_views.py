@@ -139,7 +139,7 @@ async def test_print_refuses_format_printer_lacks(hass, hass_client, printer_att
         pj.assert_not_called()
 
 
-async def test_print_allowed_when_printer_autosenses(hass, hass_client, printer_attrs):
+async def test_print_requires_explicit_format_when_printer_only_autosenses(hass, hass_client, printer_attrs):
     printer_attrs.return_value = PrinterInfo(
         name=None, info=None, location=None, make_and_model=None, uuid=None,
         formats=["application/octet-stream"], sides=[], copies_max=None,
@@ -150,7 +150,7 @@ async def test_print_allowed_when_printer_autosenses(hass, hass_client, printer_
     ), patch.object(JobCoordinator, "_ensure_poll_loop"):
         client = await hass_client()
         resp = await client.post("/api/ipp_print/print", data=_form(PDF))
-        assert resp.status == 200
+        assert resp.status == 415
 
 
 async def test_print_accepts_magic_within_first_kib(hass, hass_client):
@@ -367,3 +367,42 @@ async def test_submit_timeout_reports_ambiguous_outcome(hass, hass_client):
         resp = await client.post("/api/ipp_print/print", data=_form(PDF))
     assert resp.status == 502
     assert "check its queue before retrying" in (await resp.json())["message"]
+
+
+async def test_paper_tray_color_quality_are_preflighted_before_upload(
+    hass, hass_client, printer_attrs, validation_result,
+):
+    info = printer_attrs.return_value
+    info.media_supported = ["iso_a4_210x297mm"]
+    info.media_sources = ["tray-1"]
+    info.color_modes = ["monochrome"]
+    info.qualities = [4]
+    await _setup(hass)
+    http = await hass_client()
+    form = _form(PDF)
+    settings = {"media": "iso_a4_210x297mm", "media_source": "tray-1",
+                "color_mode": "monochrome", "quality": "4"}
+    for key, value in settings.items():
+        form.add_field(key, value)
+    with patch.object(integration.PrinterClient, "print_job", AsyncMock(return_value=OK_RESULT)) as post:
+        with patch.object(JobCoordinator, "_ensure_poll_loop"):
+            response = await http.post("/api/ipp_print/print", data=form)
+    assert response.status == 200
+    assert validation_result.call_args.kwargs["media_source"] == "tray-1"
+    assert post.call_args.kwargs["quality"] == 4
+    assert post.call_args.kwargs["color_mode"] == "monochrome"
+
+
+async def test_preflight_failure_confirms_no_job_and_never_uploads(
+    hass, hass_client, validation_result,
+):
+    await _setup(hass)
+    validation_result.side_effect = TimeoutError("printer validation unavailable")
+    http = await hass_client()
+    form = _form(PDF)
+    form.add_field("copies", "1")
+    with patch.object(integration.PrinterClient, "print_job", AsyncMock()) as post:
+        response = await http.post("/api/ipp_print/print", data=form)
+    assert response.status == 400
+    assert (await response.json())["job_may_exist"] is False
+    post.assert_not_awaited()

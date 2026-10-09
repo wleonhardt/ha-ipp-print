@@ -39,8 +39,16 @@ def capability_snapshot(cache: CapabilityCache[PrinterInfo], entity_id: str | No
             "sides": [side for side in SIDES if side in info.sides]
             if info and info.sides else None,
             "copies_max": info.copies_max if info else None,
+            "auto_sensing": info.auto_sensing if info and info.formats else None,
+            "media": list(info.media_supported)[:128] if info and info.media_supported else None,
+            "media_sources": info.media_sources[:128] if info and info.media_sources else None,
+            "media_ready": info.media_ready[:128] if info and info.media_ready is not None else None,
+            "color_modes": list(info.color_modes)[:128] if info and info.color_modes else None,
+            "qualities": [q for q in info.qualities if q in (3, 4, 5)] if info and info.qualities else None,
         },
-        "request_options": ["entity_id", "copies", "sides"],
+        "defaults": info.defaults if info else {},
+        "document_format": info.document_format if info else None,
+        "request_options": ["entity_id", "copies", "sides", "media", "color_mode", "quality", "media_source"],
         "limits": {"copies_min": 1, "copies_max": MAX_COPIES,
                    "upload_bytes": MAX_UPLOAD_BYTES, "formats": list(UPLOAD_FORMATS)},
     }

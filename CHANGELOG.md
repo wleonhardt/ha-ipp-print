@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.7.0] - 2026-10-08
+
+### Added
+- Bounded typed IPP groups, collections, ranges, resolutions and unknown values.
+- Format-specific settings and Validate-Job preflight with explicit-version-only
+  read retries. Print submissions are never replayed automatically.
+- Common Options dialog: printer, copies, binding, paper, tray, color and quality;
+  explicit one-copy/one-sided card defaults and optional options-only duplex.
+- Preserve successful-with-warning statuses and requested settings in job tracking.
+
+### Fixed
+- Auto-sensing no longer falsely advertises every upload format as supported.
+- Separate supported/default/ready media. Avoid huge routine media-col-database
+  queries that caused real HP settings refreshes to time out.
+- Preserve staged files on confirmed preflight failures; protect ambiguous submissions.
+- Reconcile discovery addresses and legacy UUID forms without merging distinct
+  print queues or changing existing IDs. Redact diagnostic paths/names/identities.
+
 ## [0.6.1] - 2026-10-08
 
 ### Fixed

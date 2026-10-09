@@ -9,7 +9,10 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONF_PASSWORD, DOMAIN
 
-TO_REDACT = {CONF_PASSWORD}
+TO_REDACT = {
+    CONF_PASSWORD, "host", "user", "path", "printer_uri", "uuid", "unique_id",
+    "name", "info", "location", "filename", "job_name", "error",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -20,7 +23,7 @@ async def async_get_config_entry_diagnostics(
     coordinator = data.get("coordinator")
     client = data.get("client")
     current = coordinator.current if coordinator is not None else None
-    return {
+    return async_redact_data({
         "entry": {
             "data": async_redact_data(dict(entry.data), TO_REDACT),
             "options": async_redact_data(dict(entry.options), TO_REDACT),
@@ -29,4 +32,4 @@ async def async_get_config_entry_diagnostics(
         "printer": info.to_dict() if info is not None else None,
         "current_job": current.to_dict() if current is not None else None,
         "card_url": data.get("card_url"),
-    }
+    }, TO_REDACT)

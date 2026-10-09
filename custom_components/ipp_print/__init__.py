@@ -79,6 +79,10 @@ PRINT_FILE_SCHEMA = vol.Schema(
         vol.Optional(ATTR_JOB_NAME): cv.string,
         vol.Optional(ATTR_COPIES): validate_copies,
         vol.Optional(ATTR_SIDES): vol.In(SIDES),
+        vol.Optional("media"): vol.All(str, vol.Length(min=1, max=255)),
+        vol.Optional("color_mode"): vol.All(str, vol.Length(min=1, max=64)),
+        vol.Optional("quality"): vol.All(validate_copies, vol.In([3, 4, 5])),
+        vol.Optional("media_source"): vol.All(str, vol.Length(min=1, max=255)),
     }
 ).extend(cv.TARGET_SERVICE_FIELDS)
 
@@ -215,6 +219,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Stop the poll task and release pooled printer connections so a
             # reload can't leave the old coordinator polling the old config.
             await data["capability_cache"].async_close()
+            for cache in data.get("format_caches", {}).values():
+                await cache.async_close()
             await data["coordinator"].async_shutdown()
             await data["client"].async_close()
     return unloaded
@@ -307,9 +313,10 @@ def _live_entries(hass: HomeAssistant) -> dict[str, dict]:
 class SubmitError(Exception):
     """A submission was refused; carries an HTTP-ish status for the views."""
 
-    def __init__(self, message: str, status: int) -> None:
+    def __init__(self, message: str, status: int, *, job_may_exist: bool = False) -> None:
         super().__init__(message)
         self.status = status
+        self.job_may_exist = job_may_exist
 
 
 def _pick_entry(hass: HomeAssistant, entry_ids: set[str] | None) -> dict | None:
@@ -346,6 +353,20 @@ def _entry_for_entity(hass: HomeAssistant, entity_id: str | None) -> dict | None
     return _pick_entry(hass, {reg_entry.config_entry_id})
 
 
+async def _format_cache(live: dict, document_format: str) -> CapabilityCache:
+    caches = live.setdefault("format_caches", {})
+    old = None
+    if document_format not in caches:
+        if len(caches) >= 8:
+            old = caches.pop(next(iter(caches)))
+        caches[document_format] = CapabilityCache(
+            lambda: live["client"].get_printer_attrs(document_format, fresh=True))
+    cache = caches[document_format]
+    if old is not None:
+        await old.async_close()
+    return cache
+
+
 async def _submit(
     live: dict,
     *,
@@ -354,6 +375,10 @@ async def _submit(
     document_format: str,
     copies: int | None = None,
     sides: str | None = None,
+    media: str | None = None,
+    color_mode: str | None = None,
+    quality: int | None = None,
+    media_source: str | None = None,
 ) -> dict[str, Any]:
     """Shared submit path for the HTTP view and the service.
 
@@ -373,14 +398,20 @@ async def _submit(
     if sides is not None and sides not in SIDES:
         raise SubmitError("invalid sides", 400)
     cache = live["capability_cache"]
-    info = live["printer_info"] = await cache.async_get(fresh=sides is not None)
+    info = live["printer_info"] = await cache.async_get()
     if cache.closed:
         raise SubmitError("printer integration unloaded; no job submitted", 503)
-    if sides is not None and cache.metadata()["status"] != "fresh":
-        raise SubmitError(
-            "cannot read the printer's current paper settings; "
-            "check its connection. No print job was submitted", 502,
-        )
+    explicit = copies is not None or sides is not None or media or media_source or color_mode or quality is not None
+    if explicit:
+        format_cache = await _format_cache(live, document_format)
+        info = live["printer_info"] = await format_cache.async_get(fresh=True)
+        if format_cache.metadata()["status"] != "fresh" or format_cache.closed:
+            raise SubmitError(
+                "cannot read the printer's current format and paper settings; "
+                "check its connection. No print job was submitted", 502,
+            )
+    if cache.closed:
+        raise SubmitError("printer integration unloaded; no job submitted", 503)
     if info is not None and info.formats and not info.supports_format(document_format):
         raise SubmitError(
             f"printer does not accept {document_format} "
@@ -396,30 +427,54 @@ async def _submit(
     if copies is not None and info is not None and info.copies_max is not None:
         if copies > info.copies_max:
             raise SubmitError(f"printer supports at most {info.copies_max} copies", 400)
+    if media is not None and (not isinstance(media, str) or not info
+                              or media not in info.media_supported):
+        raise SubmitError("selected paper size is not advertised by this printer", 400)
+    if color_mode is not None and (not isinstance(color_mode, str) or not info
+                                   or color_mode not in info.color_modes):
+        raise SubmitError("selected color mode is not advertised by this printer", 400)
+    if quality is not None and (type(quality) is not int or not info or quality not in info.qualities):
+        raise SubmitError("selected print quality is not advertised by this printer", 400)
+    if media_source is not None and (not isinstance(media_source, str) or not info
+                                    or media_source not in info.media_sources):
+        raise SubmitError("selected tray is not advertised by this printer", 400)
+    effective_media = media if media is not None else (
+        info.media_default if sides and info is not None else None)
+    options = dict(copies=copies, sides=sides, media=effective_media)
+    if media_source is not None:
+        options["media_source"] = media_source
+    if color_mode is not None:
+        options["color_mode"] = color_mode
+    if quality is not None:
+        options["quality"] = quality
+    validation_warning = None
+    if explicit:
+        try:
+            validation_warning = await client.validate_job(document_format=document_format, **options)
+        except Exception as exc:
+            raise SubmitError(f"{exc}. No print job was submitted", 400) from exc
 
     try:
         result = await client.print_job(
             job_name=filename,
             document_format=document_format,
             document=document,
-            copies=copies,
-            sides=sides,
             # Some HP firmware rejects duplex when media is implicit even
             # though media-default is loaded and sides-supported lists it.
-            media=info.media_default if sides and info is not None else None,
+            **options,
         )
     except IppError as exc:
         _LOGGER.warning("IPP submission failed: %s", exc)
         detail = str(exc)
         if not isinstance(exc, IppHttpError):
             detail += "; the printer may have accepted the job; check its queue before retrying"
-        raise SubmitError(detail, 502) from exc
+        raise SubmitError(detail, 502, job_may_exist=True) from exc
     except Exception as exc:
         _LOGGER.exception("IPP submission failed")
         raise SubmitError(
             f"IPP submission failed: {type(exc).__name__}: {str(exc)[:120]}; "
             "the printer may have accepted the job; check its queue before retrying",
-            502,
+            502, job_may_exist=True,
         ) from exc
 
     if result.ipp_status not in (0x0000, 0x0001, 0x0002):
@@ -435,16 +490,18 @@ async def _submit(
     if result.job_id is None:
         raise SubmitError(
             "printer did not return a job-id; the job may have printed; "
-            "check its queue before retrying", 502
+            "check its queue before retrying", 502, job_may_exist=True
         )
 
     try:
         coordinator.track(
-            job_id=result.job_id, filename=filename, bytes_sent=len(document)
+            job_id=result.job_id, filename=filename, bytes_sent=len(document),
+            warning=result.warning or validation_warning,
+            requested_settings={key: value for key, value in options.items() if value is not None},
         )
     except RuntimeError as exc:
         raise SubmitError(
-            "printer unloaded during submission; the job may have printed", 503
+            "printer unloaded during submission; the job may have printed", 503, job_may_exist=True
         ) from exc
     return {
         "ok": True,
@@ -452,6 +509,8 @@ async def _submit(
         "bytes": len(document),
         "job_id": result.job_id,
         "state": result.job_state_name,
+        "warning": result.warning or validation_warning,
+        "unsupported_attributes": list(result.unsupported_attributes),
     }
 
 
@@ -515,6 +574,8 @@ def _make_print_file_handler(hass: HomeAssistant):
                 document_format=fmt,
                 copies=call.data.get(ATTR_COPIES),
                 sides=call.data.get(ATTR_SIDES),
+                media=call.data.get("media"), color_mode=call.data.get("color_mode"),
+                quality=call.data.get("quality"), media_source=call.data.get("media_source"),
             )
         except SubmitError as exc:
             raise HomeAssistantError(str(exc)) from exc
@@ -555,11 +616,12 @@ class PrintView(HomeAssistantView):
         entity_id: str | None = None
         copies: int | None = None
         sides: str | None = None
+        options: dict = {}
         seen: set[str] = set()
         buf = bytearray()
         try:
             while (part := await reader.next()) is not None:
-                if part.name not in ("entity_id", "file", "copies", "sides"):
+                if part.name not in ("entity_id", "file", "copies", "sides", "media", "color_mode", "quality", "media_source"):
                     raise SubmitError("unexpected multipart field", 400)
                 if part.name in seen:
                     raise SubmitError(f"duplicate '{part.name}' field", 400)
@@ -586,6 +648,13 @@ class PrintView(HomeAssistantView):
                     sides = target.decode("utf-8")
                     if sides not in SIDES:
                         raise SubmitError("invalid sides", 400)
+                elif part.name in ("media", "color_mode", "quality", "media_source"):
+                    value = target.decode("utf-8")
+                    if part.name == "quality":
+                        if value not in ("3", "4", "5"):
+                            raise SubmitError("quality must be 3, 4 or 5", 400)
+                        value = int(value)
+                    options[part.name] = value
         except SubmitError as exc:
             return self.json_message(str(exc), status_code=exc.status)
         except Exception as exc:
@@ -611,10 +680,11 @@ class PrintView(HomeAssistantView):
         try:
             job = await _submit(
                 live, filename=filename, document=buf, document_format=fmt,
-                copies=copies, sides=sides
+                copies=copies, sides=sides, **options,
             )
         except SubmitError as exc:
-            return self.json_message(str(exc), status_code=exc.status)
+            return self.json({"message": str(exc), "job_may_exist": exc.job_may_exist},
+                             status_code=exc.status)
         return self.json(job)
 
 
@@ -629,8 +699,13 @@ class CapabilitiesView(HomeAssistantView):
         self._hass = hass
 
     async def get(self, request: web.Request) -> web.Response:
-        if set(request.query) - {"entity_id"} or len(request.query.getall("entity_id", [])) > 1:
+        if (set(request.query) - {"entity_id", "document_format"}
+                or any(len(request.query.getall(key, [])) > 1
+                       for key in ("entity_id", "document_format"))):
             return self.json_message("invalid capability query", status_code=400)
+        fmt = request.query.get("document_format")
+        if fmt is not None and fmt not in ("application/pdf", "image/jpeg", "image/png"):
+            return self.json_message("unsupported capability document format", status_code=400)
         entity_id = request.query.get("entity_id")
         if entity_id is not None and not entity_id.startswith("sensor."):
             return self.json_message("target is not an IPP Print sensor", status_code=404)
@@ -641,6 +716,10 @@ class CapabilitiesView(HomeAssistantView):
         if live is None:
             return self.json_message("integration not configured", status_code=503)
         cache = live["capability_cache"]
+        if cache.closed:
+            return self.json_message("integration unloaded", status_code=503)
+        if fmt:
+            cache = await _format_cache(live, fmt)
         live["printer_info"] = await cache.async_get()
         if cache.closed:
             return self.json_message("integration unloaded", status_code=503)

@@ -33,3 +33,23 @@ print_file:
             - two-sided-long-edge
             - two-sided-short-edge
           translation_key: sides
+    media:
+      example: iso_a4_210x297mm
+      selector:
+        text:
+    media_source:
+      example: tray-1
+      selector:
+        text:
+    color_mode:
+      example: monochrome
+      selector:
+        text:
+    quality:
+      example: 4
+      selector:
+        number:
+          min: 3
+          max: 5
+          step: 1
+          mode: box

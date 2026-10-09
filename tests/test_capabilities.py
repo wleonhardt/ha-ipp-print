@@ -43,7 +43,7 @@ async def test_idle_capabilities_are_cached_scoped_and_private(hass, hass_client
         assert body["entity_id"] == "sensor.test_printer_current_job_2"
         assert body["supported"]["copies_max"] == 99
         assert body["supported"]["sides"] == ["one-sided", "two-sided-long-edge"]
-        assert body["request_options"] == ["entity_id", "copies", "sides"]
+        assert body["request_options"] == ["entity_id", "copies", "sides", "media", "color_mode", "quality", "media_source"]
         assert "127.0.0." not in str(body)
     assert printer_attrs.await_count == 2  # only the two setup probes
     for query in ("entity_id=sensor.other", "entity_id=button.other"):
@@ -64,7 +64,7 @@ async def test_unknown_capabilities_do_not_claim_unsupported(hass, hass_client, 
     http = await hass_client()
     body = await (await http.get("/api/ipp_print/capabilities")).json()
     assert body["status"] == "unknown"
-    assert body["supported"] == {"formats": None, "sides": None, "copies_max": None}
+    assert all(value is None for value in body["supported"].values())
     assert body["fetched_at"] is None and body["error"] == "refresh_failed"
     assert "secret" not in str(body)
     assert printer_attrs.await_count == 1
@@ -147,4 +147,4 @@ async def test_advertised_copy_limit_and_failed_sides_probe_block_upload(
             assert response.status == 502
             assert "No print job was submitted" in (await response.json())["message"]
     submit.assert_not_called()
-    assert printer_attrs.await_count == 2  # setup and failed fresh-paper read
+    assert printer_attrs.await_count == 3  # setup, format-specific copies, failed paper read

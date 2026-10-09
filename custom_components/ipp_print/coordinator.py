@@ -54,6 +54,8 @@ class TrackedJob:
     finished_at: datetime | None = None
     cancel_requested: bool = False
     fail_count: int = 0  # consecutive poll failures
+    warning: str | None = None
+    requested_settings: dict = field(default_factory=dict)
     operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def is_terminal(self) -> bool:
@@ -66,6 +68,8 @@ class TrackedJob:
             "bytes": self.bytes_sent,
             "state": self.state,
             "state_reasons": self.state_reasons,
+            "warning": self.warning,
+            "requested_settings": self.requested_settings,
             "pages_done": self.pages_done,
             "pages_total": self.pages_total,
             "submitted_at": self.submitted_at.isoformat(),
@@ -114,7 +118,8 @@ class JobCoordinator:
             except Exception:
                 _LOGGER.exception("update listener raised")
 
-    def track(self, *, job_id: int, filename: str, bytes_sent: int) -> TrackedJob:
+    def track(self, *, job_id: int, filename: str, bytes_sent: int,
+              warning: str | None = None, requested_settings: dict | None = None) -> TrackedJob:
         if self._stopped:
             raise RuntimeError("printer tracking has been unloaded")
         job = TrackedJob(
@@ -122,6 +127,8 @@ class JobCoordinator:
             filename=filename,
             bytes_sent=bytes_sent,
             submitted_at=datetime.now(timezone.utc),
+            warning=warning,
+            requested_settings=requested_settings or {},
         )
         self._jobs[job_id] = job
         self._current = job

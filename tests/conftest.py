@@ -42,3 +42,11 @@ def printer_attrs():
         new=AsyncMock(return_value=deepcopy(DEFAULT_PRINTER_INFO)),
     ) as mock:
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def validation_result():
+    """Preflight is network I/O and must be patchable in HA tests."""
+    with patch("custom_components.ipp_print.printer.PrinterClient.validate_job",
+               new=AsyncMock(return_value=None)) as mock:
+        yield mock

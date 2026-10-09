@@ -223,12 +223,13 @@ def test_parse_printer_attrs_error_status_raises():
         p.parse_printer_attrs_response(_resp(0x0400))
 
 
-def test_supports_format_octet_stream_means_anything():
+def test_auto_sensing_does_not_claim_explicit_format_support():
     info = p.PrinterInfo(
         name=None, info=None, location=None, make_and_model=None, uuid=None,
         formats=["application/octet-stream"], sides=[], copies_max=None,
     )
-    assert info.supports_format("image/png")
+    assert not info.supports_format("image/png")
+    assert info.auto_sensing
 
 
 def test_client_url_uses_path_and_port():

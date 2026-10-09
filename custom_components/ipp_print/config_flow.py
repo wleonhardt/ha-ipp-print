@@ -69,14 +69,14 @@ def _normalize_uuid(value: str | None) -> str | None:
     v = value.strip().lower()
     if v.startswith("urn:uuid:"):
         v = v[len("urn:uuid:"):]
-    return v or None
+    return v.strip("{}") or None
 
 
 def _unique_id(info: PrinterInfo | None, data: dict[str, Any]) -> str:
     uuid = _normalize_uuid(info.uuid) if info else None
     path = "/" + (data.get(CONF_PATH) or DEFAULT_PATH).strip("/")
     suffix = "" if path == DEFAULT_PATH else path
-    return uuid or f"{data[CONF_HOST]}:{data.get(CONF_PORT, DEFAULT_PORT)}{suffix}"
+    return f"{uuid}{suffix}" if uuid else f"{data[CONF_HOST]}:{data.get(CONF_PORT, DEFAULT_PORT)}{suffix}"
 
 
 def _endpoint(data: dict[str, Any]) -> tuple[str, int, str]:
@@ -136,6 +136,25 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
             for entry in self._async_current_entries()
         )
 
+    def _identity_configured(self, uuid: str | None, data: dict[str, Any], *, update=False) -> bool:
+        if not uuid:
+            return False
+        for entry in self._async_current_entries():
+            effective = {**entry.data, **entry.options}
+            # Some servers reuse a UUID across queues; the resource path is
+            # part of queue identity. Preserve all existing entry/entity IDs.
+            known = _normalize_uuid((entry.unique_id or "").split("/", 1)[0])
+            if known != uuid or _endpoint(effective)[2] != _endpoint(data)[2]:
+                continue
+            if update and effective.get(CONF_USE_TLS, True) == data.get(CONF_USE_TLS, True):
+                changes = {CONF_HOST: data[CONF_HOST], CONF_PORT: data[CONF_PORT]}
+                self.hass.config_entries.async_update_entry(
+                    entry, data={**entry.data, **changes},
+                    options={**entry.options, **{k: v for k, v in changes.items() if k in entry.options}},
+                )
+            return True
+        return False
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -145,6 +164,8 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
                 self._last_error = str(exc)
             else:
+                if self._identity_configured(_normalize_uuid(info.uuid), user_input):
+                    return self.async_abort(reason="already_configured")
                 await self.async_set_unique_id(_unique_id(info, user_input))
                 self._abort_if_unique_id_configured()
                 if self._endpoint_configured(user_input):
@@ -163,17 +184,20 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_zeroconf(self, discovery_info: ZeroconfServiceInfo):
         """Printer advertised `_ipp._tcp` / `_ipps._tcp` on the LAN."""
-        props = discovery_info.properties or {}
+        props = {str(key).casefold(): value for key, value
+                 in (discovery_info.properties or {}).items()}
         tls = discovery_info.type == "_ipps._tcp.local."
         host = discovery_info.host
         port = discovery_info.port or (443 if tls else 631)
         # `rp` is the resource path without a leading slash (e.g. "ipp/print").
         path = "/" + str(props.get("rp") or DEFAULT_PATH).strip("/")
 
-        uuid = _normalize_uuid(props.get("UUID"))
-        await self.async_set_unique_id(uuid or _unique_id(None, {
-            CONF_HOST: host, CONF_PORT: port, CONF_PATH: path,
-        }))
+        uuid = _normalize_uuid(props.get("uuid"))
+        discovered = {CONF_HOST: host, CONF_PORT: port, CONF_PATH: path, CONF_USE_TLS: tls}
+        if self._identity_configured(uuid, discovered, update=True):
+            return self.async_abort(reason="already_configured")
+        identity = uuid + (path if path != DEFAULT_PATH else "") if uuid else _unique_id(None, discovered)
+        await self.async_set_unique_id(identity)
         self._abort_if_unique_id_configured()
         # Several CUPS queues may share one host. Match the effective
         # endpoint, including options overrides, rather than host alone.
@@ -210,6 +234,8 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
                 self._last_error = str(exc)
             else:
+                if self._identity_configured(_normalize_uuid(info.uuid), self._discovered):
+                    return self.async_abort(reason="already_configured")
                 # Prefer the identity returned by the printer. Discovery
                 # may omit UUID or advertise an outdated one.
                 await self.async_set_unique_id(_unique_id(info, self._discovered))

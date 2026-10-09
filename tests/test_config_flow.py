@@ -129,8 +129,8 @@ async def test_zeroconf_plain_ipp_uses_rp_path_and_no_tls(hass):
     assert result["data"]["use_tls"] is False
     assert result["data"]["port"] == 631
     assert result["data"]["path"] == "/printers/office"
-    # Confirmation uses the probed UUID even when discovery omitted it.
-    assert result["result"].unique_id == "12345678-1234-1234-1234-123456789abc"
+    # Confirmation uses the probed UUID, scoped to the non-default queue path.
+    assert result["result"].unique_id == "12345678-1234-1234-1234-123456789abc/printers/office"
 
 
 async def test_zeroconf_already_configured_by_host_aborts(hass):
@@ -243,3 +243,24 @@ async def test_confirmation_rechecks_legacy_endpoint_added_while_waiting(hass):
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_discovery_normalizes_legacy_uuid_and_updates_effective_host(hass):
+    old = MockConfigEntry(domain=DOMAIN, unique_id="urn:uuid:{ABC-123}",
+                          data={**USER_INPUT, "host": "192.0.2.1"}, options={"host": "192.0.2.2"})
+    old.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
+        data=_zc(UUID="abc-123", RP="ipp/print"))
+    assert result["type"] is FlowResultType.ABORT
+    assert old.unique_id == "urn:uuid:{ABC-123}"
+    assert old.options["host"] == old.data["host"] == "192.0.2.10"
+
+
+async def test_same_uuid_different_queue_is_not_merged(hass):
+    MockConfigEntry(domain=DOMAIN, unique_id="queue-uuid",
+                    data={**USER_INPUT, "path": "/printers/first"}).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
+        data=_zc(uuid="queue-uuid", rp="printers/second"))
+    assert result["type"] is FlowResultType.FORM

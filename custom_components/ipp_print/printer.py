@@ -14,12 +14,15 @@ attribute groups — handcrafted bytes are simpler than monkey-patching.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from functools import partial
 import logging
 import ssl
 
 import aiohttp
+
+from .ipp_codec import LocalizedText, decode_response
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,6 +92,7 @@ TAG_MIME_MEDIA_TYPE = 0x49
 
 # Operations.
 OP_PRINT_JOB = 0x0002
+OP_VALIDATE_JOB = 0x0004
 OP_CANCEL_JOB = 0x0008
 OP_GET_JOB_ATTRS = 0x0009
 OP_GET_PRINTER_ATTRS = 0x000B
@@ -110,6 +114,16 @@ PRINTER_ATTRS_REQUESTED = (
     b"sides-supported",
     b"copies-supported",
     b"media-default",
+    b"operations-supported",
+    b"ipp-versions-supported",
+)
+OPTION_ATTRS_REQUESTED = (
+    # Never request media-col-database during routine reads. Real HP firmware
+    # expands it into ~938 KiB of combinations; even a small name list can
+    # exhaust a response/time budget. Source keywords + Validate-Job suffice.
+    b"media-supported", b"media-ready", b"media-col-default", b"media-source-supported",
+    b"print-color-mode-supported", b"print-quality-supported",
+    b"print-color-mode-default", b"print-quality-default", b"sides-default", b"copies-default",
 )
 
 # IPP job-state enum values (RFC 8011 §5.3.7).
@@ -134,6 +148,8 @@ class JobSubmissionResult:
     job_state: int | None
     job_state_name: str | None
     raw: bytes  # full response for diagnostics
+    warning: str | None = None
+    unsupported_attributes: tuple[str, ...] = ()
 
 
 @dataclass
@@ -149,6 +165,16 @@ class PrinterInfo:
     sides: list[str]  # sides-supported
     copies_max: int | None  # upper bound of copies-supported
     media_default: str | None = None  # explicit default for duplex firmware compatibility
+    media_supported: list[str] = field(default_factory=list)
+    media_ready: list[str] | None = None
+    media_sources: list[str] = field(default_factory=list)
+    color_modes: list[str] = field(default_factory=list)
+    qualities: list[int] = field(default_factory=list)
+    operations: list[int] = field(default_factory=list)
+    versions: list[str] = field(default_factory=list)
+    document_format: str | None = None
+    defaults: dict = field(default_factory=dict)
+    media_collections: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -161,12 +187,25 @@ class PrinterInfo:
             "sides": list(self.sides),
             "copies_max": self.copies_max,
             "media_default": self.media_default,
+            "auto_sensing": self.auto_sensing,
+            "media_supported": self.media_supported,
+            "media_ready": self.media_ready,
+            "media_sources": self.media_sources,
+            "color_modes": self.color_modes,
+            "qualities": self.qualities,
+            "operations": self.operations,
+            "versions": self.versions,
+            "document_format": self.document_format,
+            "defaults": self.defaults,
         }
 
     def supports_format(self, fmt: str) -> bool:
-        """True if the printer lists `fmt`, or accepts anything
-        (application/octet-stream = printer auto-senses)."""
-        return fmt in self.formats or "application/octet-stream" in self.formats
+        """Only an explicit advertised MIME type establishes support."""
+        return fmt in self.formats
+
+    @property
+    def auto_sensing(self) -> bool:
+        return "application/octet-stream" in self.formats
 
 
 @dataclass
@@ -225,6 +264,9 @@ def build_print_job(
     copies: int | None = None,
     sides: str | None = None,
     media: str | None = None,
+    color_mode: str | None = None,
+    media_source: str | None = None,
+    quality: int | None = None,
 ) -> bytes:
     # Truncate at a codepoint boundary — a raw byte-slice can split UTF-8.
     job_name_bytes = job_name.encode()[:255].decode("utf-8", "ignore").encode()
@@ -239,7 +281,7 @@ def build_print_job(
             # Explicit settings must not silently fall back to simplex or
             # another copy count. Without fidelity, IPP permits substitution.
             + (_attr(TAG_BOOLEAN, b"ipp-attribute-fidelity", b"\x01")
-               if copies is not None or sides or media else b"")
+               if copies is not None or sides or media or color_mode or media_source or quality else b"")
         ),
     )
     # Job-template attributes live in their own group (RFC 8011 §4.2.1).
@@ -248,8 +290,19 @@ def build_print_job(
         job_attrs += _attr(TAG_INTEGER, b"copies", _int_value(copies))
     if sides:
         job_attrs += _attr(TAG_KEYWORD, b"sides", sides.encode())
-    if media:
+    if media_source:
+        # RFC 8011/PWG media-col: a source and optional size name belong in
+        # the same collection. Do not send conflicting media and media-col.
+        members = _attr(0x4A, b"", b"media-source") + _attr(TAG_KEYWORD, b"", media_source.encode())
+        if media:
+            members += _attr(0x4A, b"", b"media-size-name") + _attr(TAG_KEYWORD, b"", media.encode())
+        job_attrs += _attr(0x34, b"media-col", b"") + members + _attr(0x37, b"", b"")
+    elif media:
         job_attrs += _attr(TAG_KEYWORD, b"media", media.encode())
+    if color_mode:
+        job_attrs += _attr(TAG_KEYWORD, b"print-color-mode", color_mode.encode())
+    if quality is not None:
+        job_attrs += _attr(TAG_ENUM, b"print-quality", _int_value(quality))
     if job_attrs:
         job_attrs = bytes([TAG_JOB_ATTRS]) + job_attrs
     return (
@@ -259,7 +312,8 @@ def build_print_job(
 
 
 def build_get_printer_attrs(
-    *, printer_uri: str, user: str, requested: tuple[bytes, ...] = PRINTER_ATTRS_REQUESTED
+    *, printer_uri: str, user: str, requested: tuple[bytes, ...] = PRINTER_ATTRS_REQUESTED,
+    document_format: str | None = None,
 ) -> bytes:
     # 1setOf keyword: first value carries the name, the rest have an empty
     # name and inherit it.
@@ -267,6 +321,8 @@ def build_get_printer_attrs(
         _attr(TAG_KEYWORD, b"requested-attributes" if i == 0 else b"", kw)
         for i, kw in enumerate(requested)
     )
+    if document_format:
+        extra += _attr(TAG_MIME_MEDIA_TYPE, b"document-format", document_format.encode())
     op_attrs = _operation_group(printer_uri=printer_uri, user=user, extra=extra)
     return _header(OP_GET_PRINTER_ATTRS) + op_attrs + bytes([TAG_END_ATTRS])
 
@@ -287,78 +343,20 @@ def build_cancel_job(
     return _header(OP_CANCEL_JOB) + op_attrs + bytes([TAG_END_ATTRS])
 
 
-def _parse_attributes(data: bytes, offset: int) -> tuple[dict[str, list], int]:
-    """Walk attribute groups to end-of-attributes (0x03)."""
-    attrs: dict[str, list] = {}
-    current_name: str | None = None
-    i = offset
-    n = len(data)
-    while i < n:
-        tag = data[i]
-        i += 1
-        if tag == TAG_END_ATTRS:
-            return attrs, i
-        if tag < 0x10:
-            # Begin-attribute-group delimiter; reset name carry.
-            current_name = None
-            continue
-        if i + 2 > n:
-            raise ValueError("truncated IPP attribute name length")
-        name_len = int.from_bytes(data[i : i + 2], "big")
-        i += 2
-        if i + name_len + 2 > n:
-            raise ValueError("truncated IPP attribute name")
-        name = (
-            data[i : i + name_len].decode("utf-8", "replace") if name_len else None
-        )
-        i += name_len
-        value_len = int.from_bytes(data[i : i + 2], "big")
-        i += 2
-        if i + value_len > n:
-            raise ValueError("truncated IPP attribute value")
-        raw = data[i : i + value_len]
-        i += value_len
-
-        value: int | str | bool | tuple
-        if tag in (TAG_INTEGER, TAG_ENUM):
-            if len(raw) != 4:
-                raise ValueError("IPP integer/enum must contain four bytes")
-            value = int.from_bytes(raw, "big", signed=True)
-        elif tag == TAG_BOOLEAN:
-            if raw not in (b"\x00", b"\x01"):
-                raise ValueError("invalid IPP boolean")
-            value = bool(raw and raw[0])
-        elif tag == TAG_RANGE_OF_INTEGER:
-            if len(raw) != 8:
-                raise ValueError("IPP integer range must contain eight bytes")
-            value = (
-                int.from_bytes(raw[:4], "big", signed=True),
-                int.from_bytes(raw[4:], "big", signed=True),
-            )
-        else:
-            value = raw.decode("utf-8", "replace")
-
-        if name:
-            current_name = name
-        if current_name is None:
-            continue
-        attrs.setdefault(current_name, []).append(value)
-    raise ValueError("IPP response missing end-of-attributes")
-
-
 def parse_response(data: bytes) -> tuple[int, dict[str, list]]:
-    """Return (ipp-status-code, flattened attributes dict)."""
-    if len(data) < 8:
-        raise ValueError(f"IPP response too short: {len(data)} bytes")
-    if data[:2] not in (b"\x01\x00", b"\x01\x01", b"\x02\x00", b"\x02\x01", b"\x02\x02"):
-        raise ValueError("invalid IPP response version")
-    status = int.from_bytes(data[2:4], "big")
-    attrs, _ = _parse_attributes(data, 8)
-    return status, attrs
+    """Compatibility accessor; typed groups remain available in decode_response."""
+    response = decode_response(data)
+    return response.status, response.attributes()
 
 
 def parse_print_job_response(data: bytes) -> JobSubmissionResult:
-    status, attrs = parse_response(data)
+    response = decode_response(data)
+    status, attrs = response.status, response.attributes((1, 2))
+    unsupported = tuple(response.attributes((5,)))[:32]
+    warning = {
+        1: "The printer accepted the job but ignored or changed some settings.",
+        2: "The printer accepted the job after resolving conflicting settings.",
+    }.get(status)
     job_id = attrs.get("job-id", [None])[0]
     job_state = attrs.get("job-state", [None])[0]
     return JobSubmissionResult(
@@ -371,6 +369,8 @@ def parse_print_job_response(data: bytes) -> JobSubmissionResult:
             else None
         ),
         raw=data,
+        warning=warning,
+        unsupported_attributes=unsupported,
     )
 
 
@@ -409,9 +409,14 @@ def parse_job_attrs_response(data: bytes) -> JobAttributes | None:
 def parse_printer_attrs_response(data: bytes) -> PrinterInfo:
     """Parse a Get-Printer-Attributes response. Raises IppError when the
     printer rejects the operation."""
-    status, attrs = parse_response(data)
+    response = decode_response(data)
+    status, attrs = response.status, response.attributes((1, 4))
     if status not in (0x0000, 0x0001, 0x0002):
         raise IppError(f"Get-Printer-Attributes failed (ipp_status=0x{status:04x})")
+    return _printer_info_from_attributes(attrs)
+
+
+def _printer_info_from_attributes(attrs: dict[str, list]) -> PrinterInfo:
     copies = attrs.get("copies-supported") or []
     copies_max: int | None = None
     for v in copies:
@@ -429,6 +434,19 @@ def parse_printer_attrs_response(data: bytes) -> PrinterInfo:
         sides=_all_str(attrs, "sides-supported"),
         copies_max=copies_max,
         media_default=_first_str(attrs, "media-default"),
+        media_supported=_all_str(attrs, "media-supported"),
+        media_ready=_all_str(attrs, "media-ready") if "media-ready" in attrs else None,
+        media_sources=_all_str(attrs, "media-source-supported"),
+        color_modes=_all_str(attrs, "print-color-mode-supported"),
+        qualities=[v for v in attrs.get("print-quality-supported", []) if type(v) is int],
+        operations=[v for v in attrs.get("operations-supported", []) if type(v) is int],
+        versions=_all_str(attrs, "ipp-versions-supported"),
+        defaults={key: attrs[key][0] for key in (
+            "media-default", "sides-default", "copies-default", "print-color-mode-default",
+            "print-quality-default",
+        ) if attrs.get(key) and type(attrs[key][0]) in (str, int)},
+        media_collections={key: [v for v in attrs.get(key, []) if isinstance(v, dict)]
+                           for key in ("media-col-default", "media-col-ready", "media-col-database")},
     )
 
 
@@ -445,6 +463,8 @@ def _first_int(attrs: dict, key: str) -> int | None:
 
 def _first_str(attrs: dict, key: str) -> str | None:
     for v in attrs.get(key) or []:
+        if isinstance(v, LocalizedText):
+            return v.text
         if isinstance(v, str):
             return v
     return None
@@ -503,6 +523,10 @@ class PrinterClient:
         self._session: aiohttp.ClientSession | None = None
         self._session_lock = asyncio.Lock()
         self._closed = False
+        self._version = b"\x02\x00"
+        self._format_cache: dict[str, tuple[float, PrinterInfo]] = {}
+        self._format_lock = asyncio.Lock()
+        self._validate_supported: bool | None = None
         scheme = "https" if use_tls else "http"
         # Keep the configured port explicit: HTTP(S) and IPP(S) do not
         # necessarily have the same default port. Bracket IPv6 literals.
@@ -611,6 +635,9 @@ class PrinterClient:
         copies: int | None = None,
         sides: str | None = None,
         media: str | None = None,
+        color_mode: str | None = None,
+        media_source: str | None = None,
+        quality: int | None = None,
     ) -> JobSubmissionResult:
         req = build_print_job(
             printer_uri=self._uri,
@@ -621,7 +648,9 @@ class PrinterClient:
             copies=copies,
             sides=sides,
             media=media,
+            color_mode=color_mode, quality=quality, media_source=media_source,
         )
+        req = self._version + req[2:]
         return parse_print_job_response(
             await self._post_ipp(_IppDocumentPayload(req, document), timeout=PRINT_TIMEOUT)
         )
@@ -631,18 +660,77 @@ class PrinterClient:
             printer_uri=self._uri, user=self._user, job_id=job_id
         )
         return parse_job_attrs_response(
-            await self._post_ipp(req, timeout=POLL_TIMEOUT)
+            await self._post_ipp(self._version + req[2:], timeout=POLL_TIMEOUT)
         )
 
-    async def get_printer_attrs(self) -> PrinterInfo:
-        req = build_get_printer_attrs(printer_uri=self._uri, user=self._user)
-        return parse_printer_attrs_response(
-            await self._post_ipp(req, timeout=POLL_TIMEOUT)
-        )
+    async def _probe(self, req: bytes) -> bytes:
+        """Only explicit version rejection permits a read-only retry."""
+        raw = await self._post_ipp(self._version + req[2:], timeout=POLL_TIMEOUT)
+        response = decode_response(raw)
+        if response.status == 0x0503 and self._version != b"\x01\x01":
+            raw = await self._post_ipp(b"\x01\x01" + req[2:], timeout=POLL_TIMEOUT)
+            if decode_response(raw).status in (0, 1, 2):
+                self._version = b"\x01\x01"
+        return raw
+
+    async def get_printer_attrs(
+        self, document_format: str | None = None, *, fresh: bool = False,
+    ) -> PrinterInfo:
+        if document_format is None:
+            req = build_get_printer_attrs(printer_uri=self._uri, user=self._user)
+            return parse_printer_attrs_response(await self._probe(req))
+        if not isinstance(document_format, str) or len(document_format) > 127 or not re.fullmatch(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+", document_format):
+            raise ValueError("unsupported capability document format")
+        async with self._format_lock:
+            now = asyncio.get_running_loop().time()
+            cached = self._format_cache.get(document_format)
+            if not fresh and cached and cached[0] > now:
+                return cached[1]
+            response = None
+            # Small batches avoid long requested-attributes lists on older firmware.
+            requested = PRINTER_ATTRS_REQUESTED + OPTION_ATTRS_REQUESTED
+            for offset in range(0, len(requested), 8):
+                req = build_get_printer_attrs(
+                    printer_uri=self._uri, user=self._user, document_format=document_format,
+                    requested=requested[offset:offset + 8],
+                )
+                raw = await self._probe(req)
+                parsed = decode_response(raw)
+                if parsed.status not in (0, 1, 2):
+                    raise IppError(f"format capability probe failed (ipp_status=0x{parsed.status:04x})")
+                if response is None:
+                    response = parsed
+                else:
+                    response.groups.extend(parsed.groups)
+            # Reuse the normalizer without serializing typed collections again.
+            info = _printer_info_from_attributes(response.attributes((1, 4)))
+            info.document_format = document_format
+            if len(self._format_cache) >= 8:
+                self._format_cache.pop(next(iter(self._format_cache)))
+            self._format_cache[document_format] = (now + 900, info)
+            return info
+
+    async def validate_job(self, *, document_format: str, **options) -> str | None:
+        if self._validate_supported is False:
+            return "Printer does not support preflight validation; settings are sent with fidelity."
+        req = build_print_job(printer_uri=self._uri, user=self._user, job_name="Validate settings",
+                              document_format=document_format, document=b"", **options)
+        req = self._version + OP_VALIDATE_JOB.to_bytes(2, "big") + req[4:]
+        response = decode_response(await self._probe(req))
+        if response.status == 0x0501:
+            self._validate_supported = False
+            return "Printer does not support preflight validation; settings are sent with fidelity."
+        self._validate_supported = True
+        if response.status != 0:
+            fields = ", ".join(response.attributes((5,)))[:240]
+            raise IppError("printer refused the selected settings during validation"
+                           + (f": {fields}" if fields else "")
+                           + f" (ipp_status=0x{response.status:04x})")
+        return None
 
     async def cancel_job(self, job_id: int) -> int:
         req = build_cancel_job(
             printer_uri=self._uri, user=self._user, job_id=job_id
         )
-        status, _ = parse_response(await self._post_ipp(req, timeout=POLL_TIMEOUT))
+        status, _ = parse_response(await self._post_ipp(self._version + req[2:], timeout=POLL_TIMEOUT))
         return status

@@ -97,6 +97,22 @@
         "sides": {
           "name": "Sides",
           "description": "Simplex or duplex, if the printer supports it."
+        },
+        "media": {
+          "name": "Paper",
+          "description": "Advertised media keyword, for example iso_a4_210x297mm."
+        },
+        "media_source": {
+          "name": "Tray",
+          "description": "Advertised media source keyword, for example tray-1. Validated with the selected paper before printing."
+        },
+        "color_mode": {
+          "name": "Color",
+          "description": "Advertised print-color-mode keyword, for example monochrome or color."
+        },
+        "quality": {
+          "name": "Quality",
+          "description": "Advertised quality: 3 = draft, 4 = normal, 5 = best."
         }
       }
     }
