@@ -12,10 +12,10 @@ sections:
         duplex: false
         grid_options:
           columns: 6
-          rows: 4
+          rows: auto
       - type: custom:ipp-print-upload-card
         title: Print
         # entity: sensor.office_current_job  # required with multiple printers
         grid_options:
           columns: 6
-          rows: 4
+          rows: auto

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.11.0] - 2026-10-09
+
+### Added
+- Standalone Sections cards default to automatic rows for expanding activity.
+- Add a collapsed **Recent activity** section shared with the Scan card design.
+  Keep up to ten per-printer outcomes for seven days across Home Assistant
+  restarts, with reported counts and localized times.
+- Store metadata only. Uploaded documents are not saved and there is no reprint
+  action. Interrupted tracking is labeled outcome unknown; jobs are never
+  restored, resent or canceled by history recovery.
+- Prune expired metadata and remove it when its integration entry is removed.
+
 ## [0.10.3] - 2026-10-09
 
 ### Fixed

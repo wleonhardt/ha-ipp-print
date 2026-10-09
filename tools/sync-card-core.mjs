@@ -11,4 +11,4 @@ const found = source.match(block);
 if (!found) throw new Error(`Missing core markers: ${fileURLToPath(target)}`);
 if (process.argv.includes('--write')) writeFileSync(target, source.replace(block, () => canonical));
 else if (found[0] !== canonical) throw new Error('Card core drift: run node tools/sync-card-core.mjs --write');
-else console.log('Document card core v3 matches its vendored source.');
+else console.log('Document card core matches its vendored source.');

@@ -1171,3 +1171,42 @@ test('registry recovery preserves already registered versions and handles page r
   assert.equal(win.customElements.get(FEATURE), original);
   assert.equal(next.calls.length, 5);
 });
+
+function activityRecord(overrides = {}) {
+  return { job_id: 42, filename: 'document.pdf', state: 'completed',
+    submitted_at: new Date(Date.now() - 60000).toISOString(), finished_at: new Date(Date.now() - 30000).toISOString(),
+    expires_at: new Date(Date.now() + 3600000).toISOString(), pages_done: 2, progress_unit: 'sheets', ...overrides };
+}
+
+test('recent activity is bounded, literal, metadata only and independent of idle controls', () => {
+  const win = boot(), card = mount(win), { hass, calls } = makeHass(win);
+  push(card, hass, 'idle', {});
+  assert.equal(card._activityEl.hidden, true);
+  const records = Array.from({ length: 12 }, (_, index) => activityRecord({ job_id: index + 1, filename: '<img src=x onerror=alert(1)>.pdf', pages_done: 0 }));
+  push(card, hass, 'idle', { recent_activity: records });
+  assert.equal(card._activityEl.hidden, false);
+  assert.equal(card._activityEl.open, false);
+  assert.equal(card._activityList.children.length, 10);
+  assert.equal(card._activityList.querySelector('img'), null);
+  assert.match(card._activityList.textContent, /0 sheets/);
+  assert.equal(card._activityList.querySelector('button,a'), null, 'no reprint or saved document');
+  assert.equal(calls.fetch.length, 0);
+  assert.equal(card._primaryEl.textContent, 'Choose file');
+});
+
+test('activity keeps reused job IDs separate, drops expired records and never invents a finish', () => {
+  const win = boot(), card = mount(win), { hass } = makeHass(win);
+  push(card, hass, 'idle', { recent_activity: [activityRecord(), activityRecord({ state: 'unknown', submitted_at: new Date(Date.now() - 120000).toISOString(), finished_at: null, pages_done: null }), activityRecord({ expires_at: new Date(Date.now() - 1).toISOString() })] });
+  assert.equal(card._activityList.children.length, 2);
+  assert.notEqual(card._activityRecords[0].key, card._activityRecords[1].key);
+  const unknown = card._activityList.children[1];
+  assert.match(unknown.textContent, /Outcome unknown/);
+  assert.match(unknown.textContent, /Submitted/);
+  assert.doesNotMatch(unknown.textContent, /Finished/);
+  card._activityEl.open = true;
+  push(card, hass, 'idle', { recent_activity: [] }, 'sensor.other_job');
+  card.setConfig({ entity: 'sensor.other_job' });
+  assert.equal(card._activityList.children.length, 0);
+  assert.equal(card._activityEl.open, false);
+  assert.match(card._activityNote.textContent, /No recent/);
+});

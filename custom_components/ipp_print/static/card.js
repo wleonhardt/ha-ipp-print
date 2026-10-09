@@ -40,6 +40,28 @@ const C = customElements.get(TAG);
 // BEGIN ENGLISH CATALOG
 const CARD_TRANSLATIONS = {
   "en": {
+    "action.download": "Download PDF",
+    "action.downloading": "Downloading…",
+    "error.pdf": "The server did not return a PDF. Please try again.",
+    "activity.latest": "Latest scan",
+    "activity.recent": "Recent activity",
+    "activity.completed": "Printer reported completion",
+    "activity.canceled": "Canceled",
+    "activity.aborted": "Failed",
+    "activity.unknown": "Outcome unknown — check the printer",
+    "activity.finished": "Finished {time}",
+    "activity.submitted": "Submitted {time}",
+    "activity.pages": { "one": "{count} page", "other": "{count} pages" },
+    "activity.sheets": { "one": "{count} sheet", "other": "{count} sheets" },
+    "activity.available": "Available until {time}",
+    "activity.expired": "File expired. Scan again or use your saved copy.",
+    "activity.missing": "File unavailable. Scan again or use your saved copy.",
+    "activity.scan_note": "Only the latest completed scan is shown.",
+    "activity.print_note": "Up to 10 jobs for 7 days. Documents are not saved.",
+    "activity.no_scan": "No completed scan yet.",
+    "activity.no_print": "No recent print activity.",
+    "activity.downloaded": "PDF handed to your browser.",
+    "activity.download_failed": "Could not download the PDF. Try again.",
     "feature.config": "Invalid feature configuration.",
     "feature.host_config": "Set the device and title on the parent card.",
     "feature.target": "Select an IPP Print sensor on this card.",
@@ -172,7 +194,7 @@ const CARD_TRANSLATIONS = {
 };
 // END ENGLISH CATALOG
 
-// BEGIN DOCUMENT CARD CORE v3
+// BEGIN DOCUMENT CARD CORE v4
 // Canonical source: ha-escl-scan/shared/card-core.js; synchronize with tools/sync-card-core.mjs.
 // Shared localization contract v1. Keep this helper identical in both cards.
 // Catalogs are bundled here: no build step, translation fetch or registration wait.
@@ -331,6 +353,15 @@ const DOCUMENT_CARD_STYLES = `/* Shared document-card contract v1. Keep this bas
       .options-help { color: var(--secondary-text-color); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
       .warning { color: var(--warning-color, var(--primary-text-color)); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
       .warning:empty { display: none; }
+      .activity { font-size: 14px; line-height: 20px; min-width: 0; }
+      .activity > summary { min-height: 44px; align-content: center; cursor: pointer; }
+      .activity-list { display: grid; gap: 12px; padding: 4px 0 8px; }
+      .activity-item { display: grid; gap: 4px; overflow-wrap: anywhere; }
+      .activity-item + .activity-item { border-top: 1px solid var(--divider-color); padding-top: 12px; }
+      .activity-meta, .activity-note { color: var(--secondary-text-color); overflow-wrap: anywhere; }
+      .activity-download { margin-top: 4px; }
+      .activity-feedback { color: var(--secondary-text-color); overflow-wrap: anywhere; }
+      .activity-feedback.err { color: var(--error-color); }
       /* End shared document-card base. */`;
 
 // Shared document-card option helpers. Keep this small block identical in both cards.
@@ -460,6 +491,174 @@ C.prototype._configureFeatureView = function () {
   this.shadowRoot.querySelector('.actions').append(this._optionsButton);
 };
 
+function activityDate(value) {
+  if (typeof value !== 'string' || value.length > 64) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? time : null;
+}
+const ACTIVITY_OUTCOME = { completed: 'activity.completed', canceled: 'activity.canceled', aborted: 'activity.aborted', unknown: 'activity.unknown' };
+const ACTIVITY_AVAILABILITY = { available: 'activity.available', expired: 'activity.expired', missing: 'activity.missing' };
+function documentActivity(attrs, scan) {
+  const field = scan ? 'latest_scan' : 'recent_activity';
+  const raw = attrs?.[field];
+  const values = scan ? [raw] : Array.isArray(raw) ? raw.slice(0, 10) : [];
+  const records = [];
+  for (const value of values) {
+    if (!value || typeof value !== 'object' || typeof value.filename !== 'string' || value.filename.length > 160) continue;
+    const expires = activityDate(value.expires_at), finished = activityDate(value.finished_at);
+    const submitted = activityDate(value.submitted_at);
+    if (expires === null || (scan ? finished === null : finished === null && submitted === null)) continue;
+    let key, availability, url = null;
+    if (scan) {
+      if (typeof value.scan_id !== 'string' || !/^[a-f0-9]{12}$/.test(value.scan_id)
+          || !['available', 'expired', 'missing'].includes(value.availability)) continue;
+      key = value.scan_id;
+      availability = expires <= Date.now() ? 'expired' : value.availability;
+      if (availability === 'available' && value.file_url === `/api/escl_scan/file/${key}`) url = value.file_url;
+      else if (availability === 'available') availability = 'missing';
+    } else {
+      if (!Number.isInteger(value.job_id) || value.job_id < 1 || submitted === null
+          || !['completed', 'canceled', 'aborted', 'unknown'].includes(value.state) || expires <= Date.now()) continue;
+      key = `${value.job_id}/${value.submitted_at}`;
+    }
+    records.push({ key, scanId: scan ? key : null, filename: value.filename, url,
+      availability, expires, date: finished ?? submitted, finished: finished !== null,
+      state: scan ? 'completed' : value.state,
+      pages: Number.isInteger(value.pages_done) && value.pages_done >= 0 ? value.pages_done : null,
+      unit: value.progress_unit === 'sheets' ? 'sheets' : 'pages' });
+  }
+  return { present: !!attrs && hasOwn(attrs, field), records };
+}
+C.prototype._activitySensor = function () {
+  if (FEATURE_DOMAIN === 'escl_scan') return this._scanState();
+  try { return this._hass?.states?.[this._sensorId()]; } catch { return null; }
+};
+C.prototype._activityTime = function (time) {
+  try {
+    return new Intl.DateTimeFormat(cardLanguage(this._hass), {
+      dateStyle: 'medium', timeStyle: 'short', timeZone: this._hass?.config?.time_zone,
+    }).format(time);
+  } catch { return new Date(time).toLocaleString(); }
+};
+C.prototype._clearActivityTimer = function () {
+  clearTimeout(this._activityTimer);
+  this._activityTimer = null;
+};
+C.prototype._syncActivity = function () {
+  if (!this._card) return;
+  const scan = FEATURE_DOMAIN === 'escl_scan';
+  const sensor = this._activitySensor(), entity = sensor?.entity_id || null;
+  const data = documentActivity(sensor?.attributes, scan);
+  if (!this._activityEl) {
+    const details = document.createElement('details'); details.className = 'activity';
+    const summary = document.createElement('summary');
+    summary.textContent = this._t(scan ? 'activity.latest' : 'activity.recent');
+    this._activityList = document.createElement('div'); this._activityList.className = 'activity-list';
+    this._activityNote = document.createElement('div'); this._activityNote.className = 'activity-note';
+    this._activityFeedback = document.createElement('div'); this._activityFeedback.className = 'activity-feedback';
+    this._activityFeedback.setAttribute('aria-live', 'polite');
+    details.append(summary, this._activityList, this._activityNote, this._activityFeedback);
+    this._card.append(details); this._activityEl = details;
+  }
+  if (entity !== this._activityEntity) {
+    this._activityEntity = entity; this._activityEl.open = false;
+    this._activityMessage = null; this._expiredActivityId = null; this._historyDownload = null;
+  }
+  this._activityEl.hidden = !data.present;
+  const records = data.records.map(record => record.key === this._expiredActivityId
+    ? { ...record, availability: 'expired', url: null } : record);
+  this._activityRecords = records;
+  if (scan && this._completedScan && this._completedScan.scanId === records[0]?.key && !records[0].url) {
+    this._downloadedScanId = this._completedScan.scanId;
+    this._completedScan = null;
+    this._setStatus('');
+  }
+  const signature = JSON.stringify([entity, cardLanguage(this._hass), this._hass?.config?.time_zone, records]);
+  if (signature !== this._activitySignature) {
+    this._activitySignature = signature;
+    const hadFocus = this._activityList.contains(this.shadowRoot.activeElement);
+    this._activityList.replaceChildren(); this._activityDownloadButton = null;
+    this._activityEl.querySelector('summary').textContent = this._t(scan ? 'activity.latest' : 'activity.recent');
+    for (const record of records) {
+      const item = document.createElement('div'); item.className = 'activity-item';
+      const title = document.createElement('div'); title.textContent = record.filename;
+      const outcome = document.createElement('div');
+      outcome.textContent = this._t(ACTIVITY_OUTCOME[record.state])
+        + (record.pages === null ? '' : ' · ' + this._t(record.unit === 'sheets' ? 'activity.sheets' : 'activity.pages', { count: record.pages }));
+      const time = document.createElement('time'); time.className = 'activity-meta';
+      time.dateTime = new Date(record.date).toISOString();
+      time.textContent = this._t(record.finished ? 'activity.finished' : 'activity.submitted', { time: this._activityTime(record.date) });
+      item.append(title, outcome, time);
+      if (scan) {
+        const help = document.createElement('div'); help.className = 'activity-meta';
+        help.textContent = this._t(ACTIVITY_AVAILABILITY[record.availability], { time: this._activityTime(record.expires) });
+        item.append(help);
+        if (record.url) {
+          const button = document.createElement('button'); button.type = 'button'; button.className = 'activity-download';
+          button.addEventListener('click', () => this._downloadLatest(record));
+          item.append(button); this._activityDownloadButton = button;
+        }
+      }
+      this._activityList.append(item);
+    }
+    this._activityNote.textContent = this._t(records.length ? (scan ? 'activity.scan_note' : 'activity.print_note')
+      : (scan ? 'activity.no_scan' : 'activity.no_print'));
+    if (hadFocus) this._activityEl.querySelector('summary').focus();
+  }
+  const pending = this._historyDownload?.record.key === records[0]?.key;
+  if (this._activityDownloadButton) {
+    this._activityDownloadButton.disabled = pending || !!this._downloadRequest || this._hass?.connected === false;
+    this._activityDownloadButton.textContent = this._t(pending ? 'action.downloading' : 'action.download');
+  }
+  const message = this._activityMessage?.key === records[0]?.key ? this._activityMessage : null;
+  setText(this._activityFeedback, message ? this._t(message.message) : '');
+  this._activityFeedback.classList.toggle('err', !!message?.error);
+  this._clearActivityTimer();
+  const next = Math.min(...records.map(r => r.expires).filter(time => time > Date.now()));
+  if (this.isConnected && Number.isFinite(next)) {
+    this._activityTimer = setTimeout(() => this._syncActivity(), Math.min(86_400_000, Math.max(1, next - Date.now())));
+  }
+};
+
+async function downloadScanPdf(owner, result, isCurrent) {
+  const response = await owner._apiFetch(result.url);
+  if (!isCurrent()) return 'abandoned';
+  if (response.status === 404 || response.status === 410) return 'expired';
+  if (!response.ok) throw new Error(owner._t('error.retry'));
+  const blob = await response.blob();
+  if (!isCurrent()) return 'abandoned';
+  if (!blob.size || (blob.type && !['application/pdf', 'application/octet-stream'].includes(blob.type))) {
+    throw new Error(owner._t('error.pdf'));
+  }
+  const url = URL.createObjectURL(blob), link = document.createElement('a');
+  link.href = url; link.download = result.filename; link.hidden = true;
+  document.body.appendChild(link);
+  try { link.click(); } finally { link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60_000); }
+  return 'downloaded';
+}
+C.prototype._downloadLatest = async function (record) {
+  if (!record.url || this._historyDownload || this._downloadRequest || this._hass?.connected === false) return;
+  const token = { record, entity: this._activityEntity, epoch: this._requestEpoch || 0 };
+  const current = () => this.isConnected && this._historyDownload === token
+    && this._activityEntity === token.entity && (this._requestEpoch || 0) === token.epoch
+    && this._activityRecords?.[0]?.key === record.key;
+  this._historyDownload = token; this._activityMessage = null; this._syncActivity();
+  try {
+    const outcome = await downloadScanPdf(this, record, current);
+    if (!current() || outcome === 'abandoned') return;
+    if (outcome === 'expired') this._expiredActivityId = record.key;
+    else if (this._completedScan?.scanId === record.scanId) {
+      this._completedScan = null; this._downloadedScanId = record.scanId; this._setStatus('');
+    }
+    this._activityMessage = { key: record.key, message: outcome === 'expired' ? 'activity.expired' : 'activity.downloaded' };
+  } catch {
+    if (current()) this._activityMessage = { key: record.key, message: 'activity.download_failed', error: true };
+  } finally {
+    if (this._historyDownload === token) this._historyDownload = null;
+    this._syncActivity(); this._syncControls();
+  }
+};
+
 function supportsDocumentFeature(hass, context) {
   const id = context?.entity_id;
   if (typeof id !== 'string' || !id.startsWith('sensor.')) return false;
@@ -584,7 +783,7 @@ function registerDocumentFeature() {
   }
   preserveDocumentElements();
 }
-// END DOCUMENT CARD CORE v3
+// END DOCUMENT CARD CORE v4
 
 
 C.getStubConfig = function (hass) { return { title: localize('card.title', {}, hass) }; };
@@ -618,7 +817,7 @@ Object.defineProperty(C.prototype, 'hass', {
 });
 
 C.prototype.getCardSize = function () { return 3; };
-C.prototype.getGridOptions = function () { return { columns: 6, rows: 4, min_columns: 6, min_rows: 4 }; };
+C.prototype.getGridOptions = function () { return { columns: 6, rows: 'auto', min_columns: 6, min_rows: 4 }; };
 
 C.prototype._render = function () {
   if (this._rendered) return;
@@ -712,6 +911,7 @@ C.prototype._syncControls = function () {
   for (const button of this._fileActionsEl.querySelectorAll('button')) button.disabled = locked;
   this._syncOptions(locked || offline);
   if (!locked && this._stagedFile && this._settingsError) this._primaryEl.disabled = true;
+  this._syncActivity();
 };
 
 function fileError(file, hass) {
@@ -828,6 +1028,7 @@ C.prototype._setStatus = function (text, cls = '') {
 C.prototype._pick = function () {
   if (this._busy || this._activeJobId != null) return;
   this._cleanupPicker?.();
+  this._clearActivityTimer?.();
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png';
@@ -992,6 +1193,7 @@ C.prototype._renderJobState = function (state, attrs) {
 };
 
 C.prototype._onHass = function () {
+  this._syncActivity();
   if (!this._rendered || !this.isConnected || !this._hass || this._busy || this._hass.connected === false) return;
   let entity;
   try { entity = this._sensorId(); } catch { return; }

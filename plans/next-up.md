@@ -5,7 +5,7 @@
 - Paired alignment/device identity polish installed as print 0.10.3 / scan
   0.11.2; 579 paired tests, hosted checks and narrow real-host layout checks pass.
   The native preview has a device heading. Friendly headings and explicit
-  per-printer card names are documented; physical phone spacing check remains.
+  per-printer card names are documented; the user confirmed phone spacing and Back work.
   [Validation and naming decision](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/card-alignment-and-device-names-2026-10-09.md).
 
 - Phase 5 native Tile/Mushroom features accepted: the user confirmed cards and
@@ -17,7 +17,8 @@
   The user confirmed their file was JPEG and a retry went through; the first
   failure remains undiagnosed. The PNG fix is independently verified.
   [Validation](2026-10-09-format-rejection.md).
-- Next planned phase: durable Latest scan/recent activity; not started.
+- Phase 6 implemented: durable Latest scan and bounded print activity; release
+  and deployment validation in progress.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
 
 ## Done

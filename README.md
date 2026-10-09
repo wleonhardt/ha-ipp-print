@@ -172,8 +172,17 @@ The cards recover current integration-tracked jobs from Home Assistant state
 when mounted or reconnected. They disable actions during a lost HA connection,
 keep the active device fixed, and never automatically replay a request. A print
 file staged in one card remains local to that card. Tracking is still in memory:
-restarting HA or reloading the integration does not recover past jobs. Durable
-scan results and activity history are a later phase.
+restarting HA or reloading the integration does not resume active job tracking.
+
+**Recent activity**, collapsed below the actions, keeps up to ten outcomes per
+printer for seven days from submission. It survives dashboard/HA reloads and
+shows the submitted filename, reported completion/counts and localized times.
+If tracking stops before a terminal outcome, the restored record says
+**Outcome unknown — check the printer**; it never guesses success or resends a job.
+Only compact metadata is saved in private HA storage. Uploaded documents are
+not retained and there is no reprint action. The `recent_activity` job-sensor
+attribute is excluded from Recorder. Expired entries are removed, and deleting
+the integration removes its activity metadata. Earlier jobs are not backfilled.
 
 Live print progress shows completed pages or sheets. Some printers increase
 their reported total while rendering, so the card avoids a provisional fraction
@@ -189,6 +198,7 @@ device (installs from before 0.4.0 keep `sensor.printer_current_job`).
 | state | `idle` / `pending` / `pending-held` / `processing` / `processing-stopped` / `canceled` / `aborted` / `completed` / `unknown` |
 | attributes.job_id | IPP-assigned integer |
 | attributes.filename | Submitted filename |
+| attributes.recent_activity | Up to ten per-printer outcomes for seven days; metadata only, survives restart |
 | attributes.pages_done | `job-impressions-completed` (or `job-media-sheets-completed` fallback) |
 | attributes.pages_total | `job-impressions` only when completed impressions are also reported |
 | attributes.progress_unit | `impressions`, `sheets`, or null if no completed counter exists |
@@ -517,3 +527,7 @@ Pull requests welcome.
 ## License
 
 MIT
+
+For standalone cards in Sections, use **Rows: Auto** (`grid_options.rows: auto`)
+so expanded Latest scan/Recent activity can grow. Existing cards with a fixed
+row count need that dashboard setting changed once. New cards default to Auto.
