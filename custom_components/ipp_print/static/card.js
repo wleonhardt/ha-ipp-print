@@ -361,6 +361,12 @@ C.prototype._upload = async function (file) {
     await this._refreshOptions();
     if (!this.isConnected) { definitelyRejected = true; throw new Error('Printer settings changed. Try again.'); }
     const options = this._optionCapabilities?.body?.request_options || [];
+    if (this._settingsError) { definitelyRejected = true; throw new Error(this._settingsError); }
+    if ((!options.includes('copies') && this._settings.copies !== 1)
+        || ['media','media_source','color_mode','quality'].some(key => this._settings[key] && !options.includes(key))) {
+      definitelyRejected = true;
+      throw new Error('Selected settings are unavailable. Reset them in Options or check the printer connection.');
+    }
     if (this._duplex && !options.includes('sides')) { definitelyRejected = true; throw new Error('Two-sided settings are unavailable. Open Options to check this printer.'); }
     if (options.includes('copies')) form.append('copies', String(this._settings.copies));
     if (options.includes('sides')) form.append('sides', this._duplex ? this._settings.binding : 'one-sided');
@@ -834,7 +840,7 @@ C.prototype._syncOptions = function (locked) {
   fields.entity_id.disabled = locked;
   fields.copies.min = '1'; fields.copies.max = String(Math.min(99, supported.copies_max || 99));
   if (this.shadowRoot.activeElement !== fields.copies) fields.copies.value = settings.copies;
-  fields.copies.disabled = locked || !options.includes('copies');
+  fields.copies.disabled = locked || (!options.includes('copies') && settings.copies === 1);
   const sides = Array.isArray(supported.sides) ? supported.sides : ['two-sided-long-edge','two-sided-short-edge'];
   optionChoices(fields.binding, [['two-sided-long-edge', 'Long edge', !sides.includes('two-sided-long-edge')], ['two-sided-short-edge', 'Short edge', !sides.includes('two-sided-short-edge')]], settings.binding);
   fields.binding.disabled = locked || !this._duplex || !options.includes('sides');
@@ -847,7 +853,7 @@ C.prototype._syncOptions = function (locked) {
       this._settingsError = 'A selected setting is unavailable for this document. Choose Device default or another supported value.';
     }
     optionChoices(fields[key], [['','Device default'], ...choices.map(value => [value, labels[value] || String(value)])], settings[key]);
-    fields[key].disabled = locked || !options.includes(key) || !choices.length;
+    fields[key].disabled = locked || (!settings[key] && (!options.includes(key) || !choices.length));
   }
   if (this._duplex && !sides.includes(settings.binding)) this._settingsError = 'Choose another binding or turn off Two-sided.';
   if (!Number.isInteger(settings.copies) || settings.copies < 1 || settings.copies > Number(fields.copies.max)) this._settingsError = `Enter a copy count from 1 to ${fields.copies.max}.`;

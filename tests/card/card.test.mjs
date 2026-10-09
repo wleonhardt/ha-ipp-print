@@ -659,3 +659,15 @@ test('a confirmed preflight connection failure retains the selected document', a
   el.hass=hass;const chosen=file(win,'retry.pdf','application/pdf');el._stageFile(chosen);
   await el._upload(chosen);assert.equal(el._stagedFile,chosen);
 });
+
+test('a capability outage never silently discards an explicit copy count', async () => {
+  const win=boot(),el=mount(win,{copies:3});
+  const {hass,calls}=makeHass(win,{fetchImpl:async()=>jsonResponse({job_id:2})});
+  el.hass=hass;const chosen=file(win,'three.pdf','application/pdf');el._stageFile(chosen);
+  await el._upload(chosen);
+  assert.equal(calls.fetch.length,0);assert.equal(el._stagedFile,chosen);
+  assert.match(el._statusEl.textContent,/Selected settings are unavailable/);
+  assert.equal(el._optionFields.copies.disabled,false);
+  changeOption(win,el,'copies','1');await el._upload(chosen);
+  assert.equal(calls.fetch.length,1);
+});
