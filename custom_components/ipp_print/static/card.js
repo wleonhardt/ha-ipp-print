@@ -879,7 +879,8 @@ C.prototype._onHass = function () {
     this._awaitingSnapshot = false;
     if (key !== this._jobKey) { this._stopProgress(); this._jobKey = key; }
     if (active) {
-      this._stopProgress();
+      clearTimeout(this._progressSafety);
+      this._progressSafety = null;
       this._activeJobId = attrs.job_id;
       this._activeSensorId = entity;
       this._activeSubmittedAt = attrs.submitted_at || null;

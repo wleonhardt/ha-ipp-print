@@ -921,3 +921,20 @@ test('reused queue IDs and delayed older snapshots cannot replace the submitted 
   assert.equal(el._activeJobId, 7);
   assert.match(el._statusEl.textContent, /1/);
 });
+
+test('progress updates do not allow a second cancel while the first is pending', async () => {
+  const win = boot();
+  const el = mount(win, { entity: SENSOR });
+  let finish;
+  const { hass, calls } = makeHass(win, { fetchImpl: () => new Promise(resolve => { finish = resolve; }) });
+  el.hass = hass;
+  const attrs = { job_id: 7, submitted_at: '2026-10-09T01:00:00Z' };
+  push(el, hass, 'processing', { ...attrs, pages_done: 0 });
+  const cancel = el._cancelJob();
+  push(el, hass, 'processing', { ...attrs, pages_done: 1 });
+  await el._cancelJob();
+  assert.equal(calls.fetch.length, 1);
+  finish(jsonResponse({ ok: true }));
+  await cancel;
+  assert.match(el._statusEl.textContent, /Canceling/);
+});
