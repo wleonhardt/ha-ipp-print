@@ -1,8 +1,8 @@
 # Shared scan and print card rollout
 
-Status: in-progress, 2026-10-08. Phases 1–3 implemented and installed as print
+Status: in-progress, 2026-10-08. Phases 1–3 released and installed as print
 0.8.0 / scan 0.9.0. HP physical acceptance and editor/localization/browser gates
-pass; HACS publication is pending. Phase 4 is next; remaining native-host and
+pass; both HACS releases are published. Phase 4 is next; remaining native-host and
 external hardware limits stay separate.
 
 Use the same visual and interaction contract as ha-escl-scan: neutral Home
@@ -34,8 +34,8 @@ records the rationale and reference designs. Printer baseline: v0.4.1 (`764fe71`
 - [x] Phase 0 contract and fixtures adopted; current-host experiment recorded.
   Minimum-version and Android native-host runtime checks remain before Phase 5.
 - [x] Phase 1 staging and shared mobile layout shipped; phone loading confirmed.
-- [ ] Phase 2 capability metadata and upload copies/sides shipped.
-- [ ] Phase 3 settings and matching visual editor shipped.
+- [x] Phase 2 capability metadata and upload copies/sides shipped.
+- [x] Phase 3 settings and matching visual editor shipped.
 - [ ] Phase 4 state, reconnect, availability and recovery shipped.
 - [ ] Phase 5 native feature and migration examples shipped.
 - [ ] Phase 6 bounded activity metadata shipped if justified.

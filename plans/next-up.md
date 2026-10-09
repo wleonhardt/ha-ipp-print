@@ -2,12 +2,6 @@
 
 ## Queue
 
-- Publish validated print **0.8.0** with scan **0.9.0**. Phases 2–3 and
-  compatibility changes are installed. HP physical acceptance is complete.
-  English-only localization foundation, readable native editors/defaults,
-  optional numeric clearing and keyboard/narrow-layout checks pass.
-  Print: 206 Python + 47 card tests; paired total: **527**.
-  [Paired Phase 3 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-3-validation.md).
 - Next: Phase 4 pushed job state, reconnect, target/job-scoped stale responses
   and checked availability. Replace the dashboard's stale legacy offline summary
   alongside the availability work. Additional hardware/minimum-HA/native-host
@@ -16,11 +10,13 @@
 
 ## Done
 
-- 2026-10-08 — Phase 3 final audit installed as print 0.8.0 / scan 0.9.0.
+- 2026-10-08 — Phase 3 completed, released and installed as print 0.8.0 / scan 0.9.0.
   Catalog-backed English, regional fallback/plurals, native editor labels/help,
   correct defaults and clearing copies, heading focus and quiet live regions.
   All local checks pass; live native forms, Back/Escape and long labels at
-  320 px verified. HACS publication pending.
+  320 px verified. All six hosted checks and both release workflows passed.
+  [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-3-validation.md).
+  [Print v0.8.0](https://github.com/wleonhardt/ha-ipp-print/releases/tag/v0.8.0).
 
 - 2026-10-08 — v0.7.2 paired Options navigation fix installed with scan v0.8.2.
   Back uses HA's dialog manager; disconnection resets the native modal so cached
