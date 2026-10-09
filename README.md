@@ -125,8 +125,9 @@ again: it may already have printed. Known validation errors retain the selection
 
 The card shares the scan card's neutral theme surface, native icons, readable
 text, accessible buttons and sizing. Existing card types and explicit titles
-continue to work. Add each card directly to a Sections grid for native sizing,
-or keep your horizontal stack. See [paired Sections example](examples/dashboard-sections.yaml).
+continue to work. Wrap each card in its own Vertical stack, whether the pair
+sits in Sections or a horizontal stack, to keep activity expansion independent. See the
+[paired Sections example](examples/dashboard-sections.yaml).
 Copies and duplex are available through the print service and upload API;
 the same settings are available in the card's Options dialog.
 
@@ -448,6 +449,13 @@ The [Mushroom example](examples/dashboard-mushroom.yaml) uses the current
 Template card, not Legacy Template. No Mushroom dependency is required for Tile
 or standalone cards. See the [paired native Sections example](https://github.com/wleonhardt/ha-escl-scan/blob/main/examples/dashboard-native-sections.yaml).
 Native Tile features are the recommended starting point for new dashboards.
+
+For side-by-side cards, put **each card in its own Vertical stack**, as in the
+paired example. In Sections, set the stack to **6 columns / Rows: Auto**. This
+lets activity expand only the selected card; without the stacks, the shared
+row stretches its neighbour and can move its heading and controls. The same
+layout works for standalone cards and Mushroom, without card-mod or extra CSS.
+
 Existing standalone cards remain supported; dashboards are never migrated automatically. Host verification and
 limits are recorded in the [Phase 5 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-5-validation.md).
 
@@ -529,5 +537,7 @@ Pull requests welcome.
 MIT
 
 For standalone cards in Sections, use **Rows: Auto** (`grid_options.rows: auto`)
-so expanded Latest scan/Recent activity can grow. Existing cards with a fixed
-row count need that dashboard setting changed once. New cards default to Auto.
+so expanded Latest scan/Recent activity can grow. For side-by-side cards, use
+the separate Vertical stacks in the [paired example](examples/dashboard-sections.yaml)
+and set sizing on those stacks. Existing fixed row counts need changing once;
+new standalone cards default to Auto.

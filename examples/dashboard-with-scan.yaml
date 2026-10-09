@@ -4,9 +4,14 @@
 # https://github.com/wleonhardt/ha-escl-scan
 #
 # Both integrations register their cards globally; no resources: block needed.
+# One stack per card prevents activity expansion from stretching its neighbour.
 type: horizontal-stack
 cards:
-  - type: custom:escl-scan-card
-    title: Scan
-  - type: custom:ipp-print-upload-card
-    title: Print
+  - type: vertical-stack
+    cards:
+      - type: custom:escl-scan-card
+        title: Scan
+  - type: vertical-stack
+    cards:
+      - type: custom:ipp-print-upload-card
+        title: Print

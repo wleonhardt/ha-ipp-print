@@ -1,5 +1,6 @@
-# Add this view to a dashboard. Each card belongs directly to the Sections grid.
-# Requires both integrations. Existing horizontal-stack examples also work.
+# Add this view to a dashboard. Requires both integrations.
+# Each card has its own vertical stack so activity expands independently.
+# Put Sections sizing on the stack; no card-mod or custom styling is needed.
 title: Documents
 path: documents
 type: sections
@@ -7,15 +8,19 @@ max_columns: 1
 sections:
   - type: grid
     cards:
-      - type: custom:escl-scan-card
-        title: Scan
-        duplex: false
+      - type: vertical-stack
         grid_options:
           columns: 6
           rows: auto
-      - type: custom:ipp-print-upload-card
-        title: Print
-        # entity: sensor.office_current_job  # required with multiple printers
+        cards:
+          - type: custom:escl-scan-card
+            title: Scan
+            duplex: false
+      - type: vertical-stack
         grid_options:
           columns: 6
           rows: auto
+        cards:
+          - type: custom:ipp-print-upload-card
+            title: Print
+            # entity: sensor.office_current_job  # required with multiple printers
