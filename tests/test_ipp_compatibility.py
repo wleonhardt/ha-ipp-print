@@ -118,7 +118,7 @@ def test_tray_and_paper_encode_in_one_typed_collection():
                                media="iso_a4_210x297mm", media_source="tray-1")
     attrs = decode_response(request).attributes((2,))
     assert attrs["media-col"] == [{"media-source": ["tray-1"],
-                                   "media-size-name": ["iso_a4_210x297mm"]}]
+                                   "media-size": [{"x-dimension": [21000], "y-dimension": [29700]}]}]
     assert "media" not in attrs
 
 
@@ -152,3 +152,12 @@ async def test_service_format_caches_are_bounded_and_evictions_drain():
     assert len(live["format_caches"]) == 8
     for cache in live["format_caches"].values():
         await cache.async_close()
+
+
+@pytest.mark.parametrize("media,expected", [
+    ("na_letter_8.5x11in", (21590, 27940)),
+    ("iso_a4_210x297mm", (21000, 29700)),
+    ("vendor_opaque", None), ("vendor_zero_0x3in", None),
+])
+def test_media_keyword_dimensions_are_exact(media, expected):
+    assert p.media_dimensions(media) == expected

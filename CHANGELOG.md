@@ -16,6 +16,7 @@ semver-ish `0.x`.
 
 ### Fixed
 - Auto-sensing no longer falsely advertises every upload format as supported.
+- Use numeric paper dimensions with trays: HP rejects media-size-name in media-col.
 - Separate supported/default/ready media. Avoid huge routine media-col-database
   queries that caused real HP settings refreshes to time out.
 - Preserve staged files on confirmed preflight failures; protect ambiguous submissions.

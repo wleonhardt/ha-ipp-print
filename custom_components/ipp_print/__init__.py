@@ -56,7 +56,7 @@ from .const import (
 from .capability_cache import CapabilityCache
 from .capabilities import capability_snapshot, validate_copies
 from .coordinator import JobCoordinator
-from .printer import SIDES, IppError, IppHttpError, PrinterClient
+from .printer import SIDES, IppError, IppHttpError, PrinterClient, media_dimensions
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -219,7 +219,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Stop the poll task and release pooled printer connections so a
             # reload can't leave the old coordinator polling the old config.
             await data["capability_cache"].async_close()
-            for cache in data.get("format_caches", {}).values():
+            for cache in list(data.get("format_caches", {}).values()):
                 await cache.async_close()
             await data["coordinator"].async_shutdown()
             await data["client"].async_close()
@@ -438,8 +438,13 @@ async def _submit(
     if media_source is not None and (not isinstance(media_source, str) or not info
                                     or media_source not in info.media_sources):
         raise SubmitError("selected tray is not advertised by this printer", 400)
+    if media_source and info and info.media_col_members and "media-source" not in info.media_col_members:
+        raise SubmitError("this printer does not support selecting a tray with media-col", 400)
     effective_media = media if media is not None else (
-        info.media_default if sides and info is not None else None)
+        info.media_default if (sides or media_source) and info is not None else None)
+    if (media_source and effective_media and media_dimensions(effective_media) is None
+            and info and info.media_col_members and "media-size-name" not in info.media_col_members):
+        raise SubmitError("this paper name cannot be combined with a tray; use the default tray", 400)
     options = dict(copies=copies, sides=sides, media=effective_media)
     if media_source is not None:
         options["media_source"] = media_source

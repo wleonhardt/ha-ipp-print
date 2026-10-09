@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass, field
+from decimal import Decimal
 from functools import partial
 import logging
 import ssl
@@ -122,6 +123,7 @@ OPTION_ATTRS_REQUESTED = (
     # expands it into ~938 KiB of combinations; even a small name list can
     # exhaust a response/time budget. Source keywords + Validate-Job suffice.
     b"media-supported", b"media-ready", b"media-col-default", b"media-source-supported",
+    b"media-col-supported",
     b"print-color-mode-supported", b"print-quality-supported",
     b"print-color-mode-default", b"print-quality-default", b"sides-default", b"copies-default",
 )
@@ -168,6 +170,7 @@ class PrinterInfo:
     media_supported: list[str] = field(default_factory=list)
     media_ready: list[str] | None = None
     media_sources: list[str] = field(default_factory=list)
+    media_col_members: list[str] = field(default_factory=list)
     color_modes: list[str] = field(default_factory=list)
     qualities: list[int] = field(default_factory=list)
     operations: list[int] = field(default_factory=list)
@@ -191,6 +194,7 @@ class PrinterInfo:
             "media_supported": self.media_supported,
             "media_ready": self.media_ready,
             "media_sources": self.media_sources,
+            "media_col_members": self.media_col_members,
             "color_modes": self.color_modes,
             "qualities": self.qualities,
             "operations": self.operations,
@@ -254,6 +258,16 @@ def _operation_group(
     )
 
 
+def media_dimensions(media: str | None) -> tuple[int, int] | None:
+    """PWG self-describing media keyword to hundredths of a millimeter."""
+    match = re.search(r"_([0-9]+(?:\.[0-9]+)?)x([0-9]+(?:\.[0-9]+)?)(in|mm)$", media or "")
+    if match is None:
+        return None
+    factor = 2540 if match[3] == "in" else 100
+    dimensions = tuple(int(Decimal(value) * factor) for value in match.group(1, 2))
+    return dimensions if all(1 <= value <= 2**31 - 1 for value in dimensions) else None
+
+
 def build_print_job(
     *,
     printer_uri: str,
@@ -294,7 +308,14 @@ def build_print_job(
         # RFC 8011/PWG media-col: a source and optional size name belong in
         # the same collection. Do not send conflicting media and media-col.
         members = _attr(0x4A, b"", b"media-source") + _attr(TAG_KEYWORD, b"", media_source.encode())
-        if media:
+        if dimensions := media_dimensions(media):
+            # media-size is broadly supported; HP rejects media-size-name
+            # even for an advertised paper keyword (live Validate-Job evidence).
+            members += _attr(0x4A, b"", b"media-size") + _attr(0x34, b"", b"")
+            for name, value in zip((b"x-dimension", b"y-dimension"), dimensions):
+                members += _attr(0x4A, b"", name) + _attr(TAG_INTEGER, b"", _int_value(value))
+            members += _attr(0x37, b"", b"")
+        elif media:
             members += _attr(0x4A, b"", b"media-size-name") + _attr(TAG_KEYWORD, b"", media.encode())
         job_attrs += _attr(0x34, b"media-col", b"") + members + _attr(0x37, b"", b"")
     elif media:
@@ -437,6 +458,7 @@ def _printer_info_from_attributes(attrs: dict[str, list]) -> PrinterInfo:
         media_supported=_all_str(attrs, "media-supported"),
         media_ready=_all_str(attrs, "media-ready") if "media-ready" in attrs else None,
         media_sources=_all_str(attrs, "media-source-supported"),
+        media_col_members=_all_str(attrs, "media-col-supported"),
         color_modes=_all_str(attrs, "print-color-mode-supported"),
         qualities=[v for v in attrs.get("print-quality-supported", []) if type(v) is int],
         operations=[v for v in attrs.get("operations-supported", []) if type(v) is int],
