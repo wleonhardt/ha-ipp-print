@@ -1,10 +1,9 @@
 # Shared scan and print card rollout
 
-Status: in-progress, 2026-10-08. Phase 1 released and installed as v0.5.0 with
-scan v0.6.0. Physical phone loading confirmed. Phase 2 implemented and installed
-as print v0.6.0 / scan v0.7.0, followed by card fixes v0.6.1 / v0.7.1;
-physical output confirmation and release tags pending. Phase 3 is next; remaining host
-limits are in the canonical validation record linked from `next-up.md`.
+Status: in-progress, 2026-10-08. Phases 1–3 implemented and installed as print
+0.8.0 / scan 0.9.0. HP physical acceptance and editor/localization/browser gates
+pass; HACS publication is pending. Phase 4 is next; remaining native-host and
+external hardware limits stay separate.
 
 Use the same visual and interaction contract as ha-escl-scan: neutral Home
 Assistant surfaces, one primary action, a visible Two-sided setting and optional

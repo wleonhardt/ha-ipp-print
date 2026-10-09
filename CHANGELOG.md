@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.8.0] - 2026-10-08
+
+### Added
+- Translation-ready English catalog for the card and visual editor, with Home
+  Assistant language selection, regional/base/English fallback, placeholders
+  and plural forms. No extra download, build step or dependency. Additional
+  languages will be added after review.
+
+### Changed
+- Readable editor binding choices and help explain one-copy/one-sided defaults
+  without changing IPP values. Paper and tray labels also use the catalog.
+- Name the Options button by task, focus the dialog heading without opening the
+  phone keyboard, and associate settings guidance with controls. Avoid repeated
+  announcements of unchanged status; preserve focused inputs on updates.
+
+### Fixed
+- Editor defaults match actual behavior without changing saved config on open;
+  clearing optional copies restores the default rather than saving a blank.
+
+### Included since the previous HACS release (0.5.0)
+- Capability-aware printer/copies/binding/paper/tray/color/quality Options,
+  readable paper names/dimensions, completed filename cleanup and mobile Back
+  navigation. Existing card types and YAML remain supported.
+- Typed IPP capabilities, validated multipart copies/sides, format-specific
+  settings, Validate-Job preflight, discovery reconciliation and safe diagnostics.
+  No automatic replay of an ambiguous submission. See 0.6.x/0.7.x below.
+- HP M283fdw live checks verify selected Letter/color/grayscale settings,
+  long-edge duplex and exactly two copies with correct short-edge orientation.
+  Other printer/bridge hardware remains outside this physical test.
+
 ## [0.7.2] - 2026-10-08
 
 ### Fixed

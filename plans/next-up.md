@@ -2,35 +2,25 @@
 
 ## Queue
 
-- Shared scan/print rollout in progress. Phase 0 contract/current-host
-  experiment and Phase 1 released and installed as print v0.5.0 / scan v0.6.0.
-  Physical phone loading confirmed. Phase 2 upload copies/sides and capabilities
-  implemented and installed as print v0.6.0 / scan v0.7.0, with subsequent
-  card fixes print v0.6.1 / scan v0.7.1. Live API and print jobs pass; later jobs 368/370 close physical copy-count and binding gates. Release tags pending.
-  Phase 3 controls implemented in the compatibility rollout; release gate pending.
-  [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
-  [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
-  [Phase 2 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-2-validation.md).
-- Compatibility implementation for print 0.7.0 / scan 0.8.0 is pushed and validated.
-  All six hosted checks pass for print 74878df; local print tests: 206 Python/35 card.
-  Typed IPP, format-specific settings, preflight, scoped queue discovery,
-  shared Options dialogs and bridge documentation are implemented.
-  [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-rollout-2026-10-08.md).
-  [Validation and remaining physical gates](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-validation-2026-10-08.md).
-  Installed pair: print 0.7.2 / scan 0.8.2. Live card job 368 with explicit
-  Letter/automatic tray/monochrome/normal/long-edge duplex completed. User
-  confirmed correct one-sheet front/back output; filename cleared. HP requested
-  paper-size confirmation on its screen. Scan Letter/grayscale/300 DPI and
-  download also pass. Color duplex job 369 printed two numbered sheets; manual
-  scanning returned 1F,1B,2F,2B upright with matching downloads. Release tags remain.
-  User confirmed both new Options dialogs fit and work on the phone.
-  Job 370 then tested two copies with short-edge duplex through the live card:
-  Letter/automatic tray/monochrome/normal, completed 4/4 impressions without a
-  warning; filename cleared. User confirmed exactly two sheets, both sides
-  upright when flipped like a notepad. Remaining HP physical gates are closed.
-  Final shared Phase 3 editor label/help/string audit and release tags remain.
+- Publish validated print **0.8.0** with scan **0.9.0**. Phases 2–3 and
+  compatibility changes are installed. HP physical acceptance is complete.
+  English-only localization foundation, readable native editors/defaults,
+  optional numeric clearing and keyboard/narrow-layout checks pass.
+  Print: 206 Python + 47 card tests; paired total: **527**.
+  [Paired Phase 3 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-3-validation.md).
+- Next: Phase 4 pushed job state, reconnect, target/job-scoped stale responses
+  and checked availability. Replace the dashboard's stale legacy offline summary
+  alongside the availability work. Additional hardware/minimum-HA/native-host
+  checks remain separate coverage limits.
+  [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
 
 ## Done
+
+- 2026-10-08 — Phase 3 final audit installed as print 0.8.0 / scan 0.9.0.
+  Catalog-backed English, regional fallback/plurals, native editor labels/help,
+  correct defaults and clearing copies, heading focus and quiet live regions.
+  All local checks pass; live native forms, Back/Escape and long labels at
+  320 px verified. HACS publication pending.
 
 - 2026-10-08 — v0.7.2 paired Options navigation fix installed with scan v0.8.2.
   Back uses HA's dialog manager; disconnection resets the native modal so cached

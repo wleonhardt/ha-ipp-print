@@ -53,7 +53,7 @@ afterEach(() => {
   windows.clear();
 });
 
-function boot() {
+function boot(translations = {}) {
   const dom = new JSDOM('<home-assistant></home-assistant>', {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
@@ -66,7 +66,7 @@ function boot() {
     this.open = false;
     dom.window.setTimeout(() => this.dispatchEvent(new dom.window.Event('close')), 0);
   };
-  dom.window.eval(CARD_SRC);
+  dom.window.eval(CARD_SRC + '\nObject.assign(CARD_TRANSLATIONS, ' + JSON.stringify(translations) + ');');
   return dom.window;
 }
 
@@ -787,4 +787,128 @@ test('a restored HA history entry without live parameters closes safely', async 
   assert.equal(closed, 1);
   assert.equal(host._card, null);
   assert.equal(card._optionsPanel.hidden, true);
+});
+
+// Test-only catalogs exercise localization without shipping unreviewed languages.
+test('language resolution uses region, base, then English per key and plural rules', () => {
+  const win = boot({
+    fr: { 'card.title': 'BASE TITLE', 'status.complete': { one: 'ONE {count}', other: 'MANY {count}' } },
+    'fr-ca': { 'dialog.title': 'REGIONAL OPTIONS' },
+  });
+  const localize = win.localize;
+  const hass = { locale: { language: 'fr-CA' }, language: 'en' };
+  assert.equal(localize('card.title', {}, hass), 'BASE TITLE');
+  assert.equal(localize('dialog.title', {}, hass), 'REGIONAL OPTIONS');
+  assert.equal(localize('action.done', {}, hass), 'Done');
+  assert.equal(localize('status.complete', { count: 0 }, hass), 'ONE 0');
+  assert.equal(localize('status.complete', { count: 2 }, hass), 'MANY 2');
+  assert.equal(localize('card.title', {}, { language: 'fr_CA' }), 'BASE TITLE');
+  assert.equal(localize('action.done', {}, { locale: { language: 'not a locale' } }), 'Done');
+  assert.equal(localize('constructor', {}, hass), 'constructor');
+  assert.equal(localize('missing.key', {}, hass), 'missing.key');
+  const english = localize('status.complete', { count: 0 }, { language: 'xx' });
+  assert.match(english, /0 pages/);
+});
+
+test('catalog references and plural placeholders are valid', () => {
+  const win = boot();
+  const catalogs = JSON.parse(CARD_SRC.match(/const CARD_TRANSLATIONS = (\{[\s\S]*?\});\n\/\/ END ENGLISH CATALOG/)[1]);
+  assert.deepEqual(Object.keys(catalogs), ['en'], 'only reviewed English is shipped');
+  for (const [key, message] of Object.entries(catalogs.en)) {
+    assert.match(key, /^[a-z][a-z0-9_.]+$/);
+    const forms = typeof message === 'string' ? [message] : Object.values(message);
+    if (typeof message !== 'string') assert.equal(typeof message.other, 'string');
+    const placeholders = forms.map(value => [...value.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort());
+    for (const names of placeholders) assert.deepEqual(names, placeholders[0], key);
+  }
+  const refs = [...CARD_SRC.matchAll(/(?:_t|_msg|_setMessage|localize|translatedText)\('([^']+)'/g)].map(m => m[1]);
+  for (const key of refs) assert.ok(Object.hasOwn(catalogs.en, key), key);
+  assert.equal(win.localize('action.done'), 'Done');
+});
+
+test('Options is named, focuses its heading and describes fields without opening a keyboard', async () => {
+  const win = boot(), card = mount(win);
+  const host = await optionsHost(win, card);
+  const heading = card._optionsPanel.querySelector('h2');
+  assert.equal(card.shadowRoot.activeElement, heading);
+  assert.equal(heading.autofocus, true);
+  assert.equal(card._optionsButton.getAttribute('aria-label'), heading.textContent);
+  for (const field of Object.values(card._optionFields)) {
+    assert.equal(field.getAttribute('aria-describedby'), 'options-help');
+    assert.ok(card.shadowRoot.getElementById('options-help'));
+    assert.ok(field.closest('label').querySelector('[data-i18n]').textContent);
+  }
+  host.closeDialog();
+  assert.equal(card.shadowRoot.activeElement, card._optionsButton);
+});
+
+test('translation text and placeholder data cannot create HTML', () => {
+  const markup = '<img src=x onerror=alert(1)>';
+  const win = boot({ fr: { 'dialog.title': markup, 'status.cancel_failed': 'ERROR {error}' } });
+  const card = mount(win, { title: markup });
+  card.hass = { states: {}, entities: {}, locale: { language: 'fr' } };
+  card._setMessage('status.cancel_failed', { error: markup + ' $&' }, 'err');
+  assert.equal(card._statusEl.textContent, 'ERROR ' + markup + ' $&');
+  assert.equal(card.shadowRoot.querySelector('img'), null);
+  assert.equal(card._titleEl.textContent, markup, 'custom title remains literal user data');
+  assert.equal(card._optionsPanel.querySelector('h2').textContent, markup);
+});
+
+test('unchanged status and Options guidance do not repeat live-region mutations', async () => {
+  const win = boot(), card = mount(win);
+  card._setMessage('status.canceled', {}, 'err');
+  let changed = 0;
+  const observer = new win.MutationObserver(records => { changed += records.length; });
+  observer.observe(card._statusEl, { childList: true, characterData: true, subtree: true });
+  observer.observe(card._optionHelp, { childList: true, characterData: true, subtree: true });
+  card._setMessage('status.canceled', {}, 'err');
+  card._syncControls();
+  card._syncControls();
+  await new Promise(resolve => win.setTimeout(resolve, 0));
+  observer.disconnect();
+  assert.equal(changed, 0);
+});
+
+test('print editor labels preserve binding values and display the real default copy count', () => {
+  const win = boot(), editor = win.customElements.get(TAG).getConfigElement();
+  editor.hass = { locale: { language: 'en' } };
+  let changes = 0, saved;
+  editor.addEventListener('config-changed', event => { changes++; saved = event.detail.config; });
+  editor.setConfig({ type: 'custom:' + TAG, custom_option: 'preserved' });
+  const form = editor._form;
+  assert.equal(changes, 0);
+  assert.equal(form.data.copies, 1);
+  assert.equal(form.data.duplex, false);
+  assert.equal(form.data.binding, 'two-sided-long-edge');
+  const bindings = form.schema.find(f => f.name === 'binding').selector.select.options;
+  assert.equal(bindings.find(o => o.value === 'two-sided-short-edge').label, 'Short edge');
+  assert.match(form.computeHelper({ name: 'binding' }), /notepad/);
+  assert.match(form.computeHelper({ name: 'duplex_in_options' }), /compact/);
+  form.dispatchEvent(new win.CustomEvent('value-changed', { detail: { value: { ...form.data, binding: 'two-sided-short-edge', copies: null } } }));
+  assert.equal(changes, 1);
+  assert.equal(saved.binding, 'two-sided-short-edge');
+  assert.equal(saved.custom_option, 'preserved');
+  assert.equal(Object.hasOwn(saved, 'copies'), false);
+  const card = mount(win, saved);
+  assert.equal(card._settings.copies, 1);
+});
+
+test('print language updates preserve the staged file, settings and focused copies input', async () => {
+  const win = boot({ fr: { 'dialog.title': 'PRINT OPTIONS TEST', 'status.ready': 'READY TEST', 'status.choose': 'CHOOSE TEST', 'action.print': 'PRINT TEST' } });
+  const card = mount(win);
+  const { hass, calls } = makeHass(win, { capabilitiesImpl: async () => jsonResponse(optionCaps()) });
+  card.hass = { ...hass, locale: { language: 'fr-CA' } };
+  assert.equal(card._statusEl.textContent, 'CHOOSE TEST', 'idle text follows the selected language');
+  card.hass = hass; const chosen = file(win, 'kept.pdf', 'application/pdf'); card._stageFile(chosen); await tick();
+  card._toggleOptions(true);
+  const field = changeOption(win, card, 'copies', '2'); field.focus();
+  card.hass = { ...hass, locale: { language: 'fr-CA' } };
+  assert.equal(card._optionFields.copies, field);
+  assert.equal(card.shadowRoot.activeElement, field);
+  assert.equal(card._settings.copies, 2);
+  assert.equal(card._stagedFile, chosen);
+  assert.equal(card._optionsPanel.querySelector('h2').textContent, 'PRINT OPTIONS TEST');
+  assert.equal(card._primaryEl.textContent, 'PRINT TEST');
+  assert.equal(card._statusEl.textContent, 'READY TEST');
+  assert.equal(calls.fetch.length, 0);
 });

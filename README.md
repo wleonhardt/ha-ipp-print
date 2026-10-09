@@ -406,6 +406,29 @@ Releases: bump `manifest.json` version, add a `CHANGELOG.md` section, push a
 `vX.Y.Z` tag. The release workflow verifies the version matches and publishes
 the GitHub release from the changelog section.
 
+### Card translations
+
+The card and its visual editor currently ship English. They follow Home
+Assistant's selected language, with region → base language → English fallback
+per message. Reviewed languages can be added without a build or another
+network request. Device-reported errors, filenames and custom titles stay as
+provided.
+
+To contribute a language, add a lowercase locale catalog beside `en` in
+`CARD_TRANSLATIONS` in `static/card.js`. Keep semantic keys and `{placeholders}`;
+translate complete messages rather than combining translated words. Plural
+messages use `Intl.PluralRules` categories and must include `other`. Never
+translate request values such as `gray`, `Platen` or `two-sided-short-edge`.
+Render catalog text as text, never HTML. Have a fluent speaker review the
+wording and test narrow layouts, long labels, fallback and keyboard navigation.
+Update the approved-language assertion and add placeholder/parity tests before
+shipping a language. Run `npm ci && npm run test:card`.
+
+The localization helper and Options lifecycle are vendored identically in the
+sister cards; update and validate both when changing their shared contract.
+Integration setup/service translations continue to use `strings.json` and
+`translations/` through Home Assistant.
+
 Pull requests welcome.
 
 ## License

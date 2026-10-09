@@ -29,15 +29,212 @@ if (!customElements.get(TAG)) {
 
 const C = customElements.get(TAG);
 
-C.getStubConfig = function () { return { title: 'Print' }; };
+// BEGIN ENGLISH CATALOG
+const CARD_TRANSLATIONS = {
+  "en": {
+    "action.options": "Options",
+    "action.two_sided": "Two-sided",
+    "action.done": "Done",
+    "action.canceling": "Cancelling…",
+    "choice.automatic": "Automatic",
+    "choice.color": "Color",
+    "choice.grayscale": "Grayscale",
+    "choice.device_default": "Device default",
+    "choice.integration_default": "Integration default",
+    "choice.long_edge": "Long edge",
+    "choice.short_edge": "Short edge",
+    "field.color": "Color",
+    "editor.title": "Title",
+    "editor.duplex_options": "Show Two-sided inside Options",
+    "error.retry": "Please try again.",
+    "action.print": "Print",
+    "action.choose_file": "Choose file",
+    "action.cancel": "Cancel print",
+    "action.replace": "Replace",
+    "action.clear": "Clear",
+    "action.submitting": "Submitting…",
+    "action.printing": "Printing…",
+    "accessibility.two_sided": "Two-sided print",
+    "dialog.title": "Print options",
+    "config.copies": "Copies must be an integer from 1 to 99.",
+    "config.binding": "Invalid two-sided binding.",
+    "editor.entity": "Printer sensor (optional)",
+    "editor.copies": "Default copies",
+    "editor.duplex": "Two-sided by default",
+    "editor.binding": "Default binding",
+    "field.printer": "Printer",
+    "field.copies": "Copies",
+    "field.binding": "Two-sided binding",
+    "field.paper": "Paper",
+    "field.tray": "Tray",
+    "field.quality": "Quality",
+    "file.hint": "PDF or image",
+    "status.ready": "Ready to print",
+    "status.choose": "Choose a document",
+    "status.uploading": "Uploading…",
+    "status.submitted_untracked": "Job submitted (progress unavailable)",
+    "status.queued": "Queued for printer…",
+    "status.canceled": "Print canceled",
+    "status.unknown": "Print outcome unknown (printer removed job)",
+    "status.other_job": "Job submitted (printer is tracking another job)",
+    "status.no_updates": "Job submitted (no further updates)",
+    "status.sensor_unavailable": "Job submitted (printer sensor unavailable)",
+    "error.no_file": "Choose a file first.",
+    "error.file_size": "File exceeds the 50 MiB limit.",
+    "error.file_type": "Pick a PDF, JPEG, or PNG file.",
+    "error.printers": "several printers configured; select one in Options or set entity: on the card",
+    "error.changed": "Printer settings changed. Try again.",
+    "error.settings": "Selected settings are unavailable. Reset them in Options or check the printer connection.",
+    "error.duplex": "Two-sided settings are unavailable. Open Options to check this printer.",
+    "error.response": "The printer did not return a valid job number.",
+    "error.setting_unavailable": "A selected setting is unavailable for this document. Choose Device default or another supported value.",
+    "error.binding": "Choose another binding or turn off Two-sided.",
+    "choice.printer": "Select a printer",
+    "choice.manual_feed": "Manual feed",
+    "choice.bypass": "Bypass tray",
+    "choice.main_tray": "Main tray",
+    "choice.alternate_tray": "Alternate tray",
+    "choice.auto_monochrome": "Auto black and white",
+    "choice.monochrome": "Black and white",
+    "choice.draft": "Draft",
+    "choice.normal": "Normal",
+    "choice.best": "Best",
+    "paper.letter": "Letter",
+    "paper.legal": "Legal",
+    "paper.executive": "Executive",
+    "paper.ledger": "Ledger",
+    "paper.tabloid": "Tabloid",
+    "paper.statement": "Statement",
+    "paper.foolscap": "Foolscap",
+    "paper.oficio": "Oficio",
+    "paper.monarch": "Monarch envelope",
+    "paper.photo": "Photo",
+    "paper.hagaki": "Hagaki postcard",
+    "paper.reply": "Reply postcard",
+    "paper.min": "Custom minimum",
+    "paper.max": "Custom maximum",
+    "paper.index": "Index card",
+    "help.unavailable": "Choose a printer and file to load settings. Device defaults apply while settings are unavailable.",
+    "help.document": "Choose a document to load its paper, tray, color and quality settings.",
+    "help.binding": "This printer does not advertise the selected binding. Choose another binding or turn off Two-sided.",
+    "picker.name": "IPP Print Upload",
+    "picker.description": "Upload a PDF or image straight to an IPP printer with live job progress.",
+    "card.title": "Print",
+    "status.cancel_failed": "Cancel failed: {error}",
+    "editor.help.title": "Leave blank to use the translated card title.",
+    "editor.help.entity": "Leave blank to use the only configured device. Select a sensor when more than one printer is available.",
+    "editor.help.duplex_in_options": "Move the Two-sided switch into Options to keep the card more compact.",
+    "editor.help.copies": "The default is one copy. The printer may advertise a lower maximum.",
+    "editor.help.binding": "Long edge flips like a book; short edge flips like a notepad. Applies only to two-sided printing.",
+    "editor.help.duplex": "Choose one-sided or two-sided for new print jobs.",
+    "config.boolean": "{field} must be true or false.",
+    "status.submitted": "Submitted ✓ {name}",
+    "status.submit_failed": "Submit failed: {error}{guidance}",
+    "help.uncertain": " Check the printer queue before choosing the file again; it may already have printed.",
+    "status.printing": "Printing{progress}…",
+    "status.page": " page {count}",
+    "status.page_total": " page {count}/{total}",
+    "status.paused": "Printing paused{reason}",
+    "status.complete": {
+      "one": "Print complete ✓ ({count} page)",
+      "other": "Print complete ✓ ({count} pages)"
+    },
+    "status.complete_unknown": "Print complete ✓",
+    "status.failed": "Print failed{reason}",
+    "status.reason": ": {reason}",
+    "paper.envelope": "{name} envelope",
+    "paper.dimensions": "{name} ({width} × {height} {unit})",
+    "help.next_job": "Settings apply to the next print.{loaded}",
+    "help.loaded": " Loaded: {paper}.",
+    "error.copies_range": "Enter a copy count from 1 to {max}."
+  }
+};
+// END ENGLISH CATALOG
+
+// Shared localization contract v1. Keep this helper identical in both cards.
+// Catalogs are bundled here: no build step, translation fetch or registration wait.
+class LocalizedMessage {
+  constructor(key, values) { this.key = key; this.values = values; }
+}
+function setText(element, value) {
+  if (element.textContent !== value) element.textContent = value;
+}
+function hasOwn(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
+let lastLanguageValue, lastLanguage = 'en';
+function cardLanguage(hass) {
+  const value = hass?.locale?.language || hass?.language || 'en';
+  if (value === lastLanguageValue) return lastLanguage;
+  lastLanguageValue = value;
+  try { lastLanguage = Intl.getCanonicalLocales(String(value).replace(/_/g, '-'))[0].toLowerCase(); }
+  catch { lastLanguage = 'en'; }
+  return lastLanguage;
+}
+function localize(key, values = {}, hass = document.querySelector('home-assistant')?.hass) {
+  const language = cardLanguage(hass);
+  for (const locale of new Set([language, language.split('-')[0], 'en'])) {
+    const catalog = hasOwn(CARD_TRANSLATIONS, locale) ? CARD_TRANSLATIONS[locale] : null;
+    if (!catalog || !hasOwn(catalog, key)) continue;
+    let message = catalog[key];
+    if (message && typeof message === 'object') {
+      const category = new Intl.PluralRules(locale).select(Number(values.count));
+      message = hasOwn(message, category) ? message[category] : message.other;
+    }
+    if (typeof message !== 'string') continue;
+    return message.replace(/\{(\w+)\}/g, (token, name) => {
+      if (!hasOwn(values, name)) return token;
+      const value = values[name];
+      return value instanceof LocalizedMessage ? localize(value.key, value.values, hass) : String(value);
+    });
+  }
+  return key;
+}
+function localizeElements(root, hass) {
+  for (const el of root.querySelectorAll('[data-i18n]')) {
+    el.textContent = localize(el.dataset.i18n, el._i18nValues || {}, hass);
+  }
+  for (const el of root.querySelectorAll('[data-i18n-label]')) {
+    const label = localize(el.dataset.i18nLabel, {}, hass);
+    el.setAttribute('aria-label', label);
+    if (el.hasAttribute('title')) el.title = label;
+  }
+}
+function translatedText(key, values = {}, hass) {
+  const span = document.createElement('span');
+  span.dataset.i18n = key; span._i18nValues = values;
+  span.textContent = localize(key, values, hass);
+  return span;
+}
+C.prototype._msg = function (key, values = {}) { return new LocalizedMessage(key, values); };
+C.prototype._t = function (key, values) { return localize(key, values, this._hass); };
+C.prototype._setMessage = function (key, values = {}, cls = '') {
+  this._setStatus(this._t(key, values), cls);
+  this._statusMessage = { key, values, cls };
+};
+C.prototype._applyLanguage = function () {
+  if (!this.shadowRoot) return false;
+  const language = cardLanguage(this._hass);
+  if (language === this._language) return false;
+  this._language = language;
+  localizeElements(this.shadowRoot, this._hass);
+  if (!this._config.title) this._titleEl.textContent = this._t('card.title');
+  if (this._statusMessage) {
+    const { key, values, cls } = this._statusMessage;
+    this._setMessage(key, values, cls);
+  }
+  return true;
+};
+// End shared localization helper.
+
+
+C.getStubConfig = function (hass) { return { title: localize('card.title', {}, hass) }; };
 
 C.prototype.setConfig = function (config) {
-  if (config?.copies !== undefined && (!Number.isInteger(config.copies) || config.copies < 1 || config.copies > 99)) throw new Error('Copies must be an integer from 1 to 99.');
-  for (const key of ['duplex','duplex_in_options']) if (config?.[key] !== undefined && typeof config[key] !== 'boolean') throw new Error(`${key} must be true or false.`);
-  if (config?.binding !== undefined && !['two-sided-long-edge','two-sided-short-edge'].includes(config.binding)) throw new Error('Invalid two-sided binding.');
+  if (config?.copies !== undefined && (!Number.isInteger(config.copies) || config.copies < 1 || config.copies > 99)) throw new Error(this._t('config.copies'));
+  for (const key of ['duplex','duplex_in_options']) if (config?.[key] !== undefined && typeof config[key] !== 'boolean') throw new Error(this._t('config.boolean', { field: key }));
+  if (config?.binding !== undefined && !['two-sided-long-edge','two-sided-short-edge'].includes(config.binding)) throw new Error(this._t('config.binding'));
   const previousConfig = this._config;
   const previousEntity = this._config?.entity;
-  this._config = Object.assign({ title: 'Print', copies: 1, duplex: false, binding: 'two-sided-long-edge' }, config || {});
+  this._config = Object.assign({ copies: 1, duplex: false, binding: 'two-sided-long-edge' }, config || {});
   this._settings ||= { copies: this._config.copies, binding: this._config.binding, media: '', media_source: '', color_mode: '', quality: '' };
   for (const key of ['copies','binding','duplex']) {
     if (previousConfig?.[key] !== this._config[key]) (this._pendingSettings ||= {})[key] = this._config[key];
@@ -45,7 +242,7 @@ C.prototype.setConfig = function (config) {
   if (previousEntity !== this._config.entity) this._pendingTargetReset = true;
   this._render();
   // _render is one-shot; apply config changes (card editor) directly.
-  if (this._titleEl) this._titleEl.textContent = this._config.title;
+  if (this._titleEl) this._titleEl.textContent = this._config.title || this._t('card.title');
   this._syncControls();
 };
 
@@ -97,7 +294,7 @@ C.prototype._render = function () {
       .cancel { display: none; color: var(--error-color); }
       .cancel.show { display: block; }
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
-      .options-button { margin-left: auto; flex: none; width: 44px; padding: 8px; }
+      .options-button { margin-inline-start: auto; flex: none; width: 44px; padding: 8px; }
       .options { box-sizing: border-box; display: grid; gap: 12px; width: min(400px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; padding: 20px; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); color: var(--primary-text-color); background: var(--card-background-color); }
       .options:not([open]) { display: none; }
       .options::backdrop { background: rgba(0, 0, 0, .45); }
@@ -118,16 +315,16 @@ C.prototype._render = function () {
       .file-actions button { flex: 1; min-width: 0; padding: 8px 4px; }
     </style>
     <ha-card>
-      <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div><button class="options-button" type="button" aria-expanded="false" aria-controls="options" aria-label="Options" title="Options"><ha-icon icon="mdi:tune" aria-hidden="true"></ha-icon></button></div>
+      <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div><button class="options-button" type="button" aria-expanded="false" aria-controls="options" data-i18n-label="dialog.title" title=""><ha-icon icon="mdi:tune" aria-hidden="true"></ha-icon></button></div>
       <div class="status" aria-live="polite" aria-atomic="true"></div>
       <div class="controls">
-        <label class="toggle"><span>Two-sided</span><input class="two-sided" type="checkbox" role="switch" aria-label="Two-sided print"></label>
+        <label class="toggle"><span data-i18n="action.two_sided"></span><input class="two-sided" type="checkbox" role="switch" data-i18n-label="accessibility.two_sided"></label>
         <div class="file-name"></div>
-        <div class="file-actions" hidden><button class="replace" type="button">Replace</button><button class="clear" type="button">Clear</button></div>
+        <div class="file-actions" hidden><button class="replace" type="button" data-i18n="action.replace"></button><button class="clear" type="button" data-i18n="action.clear"></button></div>
       </div>
       <div class="actions">
-        <button class="primary" type="button">Choose file</button>
-        <button class="cancel" type="button">Cancel print</button>
+        <button class="primary" type="button"></button>
+        <button class="cancel" type="button" data-i18n="action.cancel"></button>
       </div>
     </ha-card>
   `;
@@ -138,7 +335,7 @@ C.prototype._render = function () {
   this._primaryEl = root.querySelector('.primary');
   this._fileNameEl = root.querySelector('.file-name');
   this._fileActionsEl = root.querySelector('.file-actions');
-  this._titleEl.textContent = this._config.title;
+  this._titleEl.textContent = this._config.title || this._t('card.title');
   this._twoSidedEl = root.querySelector('.two-sided');
   this._twoSidedEl.addEventListener('change', () => {
     if (this._busy || this._activeJobId != null) { this._syncControls(); return; }
@@ -164,6 +361,7 @@ C.prototype._render = function () {
 
 C.prototype._syncControls = function () {
   if (!this._primaryEl) return;
+  this._applyLanguage();
   const locked = !!this._busy || this._activeJobId != null;
   if (!locked && this._pendingTargetReset) {
     this._pendingTargetReset = false;
@@ -177,33 +375,33 @@ C.prototype._syncControls = function () {
   }
   this._primaryEl.disabled = locked;
   this._primaryEl.hidden = !!this._showCancel;
-  this._primaryEl.textContent = this._busy ? 'Submitting…'
-    : this._activeJobId != null ? 'Printing…' : this._stagedFile ? 'Print' : 'Choose file';
-  this._fileNameEl.textContent = this._stagedFile?.name || this._jobFilename || 'PDF or image';
+  this._primaryEl.textContent = this._busy ? this._t('action.submitting')
+    : this._activeJobId != null ? this._t('action.printing') : this._stagedFile ? this._t('action.print') : this._t('action.choose_file');
+  this._fileNameEl.textContent = this._stagedFile?.name || this._jobFilename || this._t('file.hint');
   this._fileActionsEl.hidden = !this._stagedFile || locked;
   for (const button of this._fileActionsEl.querySelectorAll('button')) button.disabled = locked;
   this._syncOptions(locked);
   if (!locked && this._stagedFile && this._settingsError) this._primaryEl.disabled = true;
 };
 
-function fileError(file) {
-  if (!file) return 'Choose a file first.';
-  if (file.size > 50 * 1024 * 1024) return 'File exceeds the 50 MiB limit.';
+function fileError(file, hass) {
+  if (!file) return localize('error.no_file', {}, hass);
+  if (file.size > 50 * 1024 * 1024) return localize('error.file_size', {}, hass);
   if (!/\.(pdf|jpe?g|png)$/i.test(file.name) && !ACCEPTED_TYPES.has(file.type)) {
-    return 'Pick a PDF, JPEG, or PNG file.';
+    return localize('error.file_type', {}, hass);
   }
   return null;
 }
 
 C.prototype._stageFile = function (file) {
   if (this._busy || this._activeJobId != null) return;
-  const error = fileError(file);
+  const error = fileError(file, this._hass);
   if (error) { this._setStatus(error, 'err'); return; }
   this._stopProgress();
   this._stagedFile = file;
   this._jobFilename = null;
   this._warningEl.textContent = '';
-  this._setStatus('Ready to print');
+  this._setMessage('status.ready');
   this._refreshOptions();
   this._syncControls();
 };
@@ -250,7 +448,7 @@ C.prototype._sensorId = function () {
     return 'sensor.printer_current_job';
   }
   if (ids.length > 1) {
-    throw new Error('several printers configured; select one in Options or set entity: on the card');
+    throw new Error(this._t('error.printers'));
   }
   return null;
 };
@@ -273,15 +471,15 @@ C.prototype._cancelJob = async function () {
     if (this._activeJobId !== jobId || this._progressGeneration !== generation) return;
     if (!r.ok) {
       const body = await r.text();
-      this._setStatus('Cancel failed: ' + body.slice(0, 80), 'err');
+      this._setMessage('status.cancel_failed', { error: body.slice(0, 80) }, 'err');
       return;
     }
-    this._setStatus('Cancelling…');
+    this._setMessage('action.canceling');
     // The coordinator's next poll will observe IPP terminal state and the
     // sensor subscription will overwrite this with "Print canceled".
   } catch (err) {
     if (this._activeJobId === jobId && this._progressGeneration === generation) {
-      this._setStatus('Cancel failed: ' + (err?.message || err), 'err');
+      this._setMessage('status.cancel_failed', { error: err?.message || err }, 'err');
     }
   } finally {
     if (this._cancelPending === pending) this._cancelPending = null;
@@ -296,7 +494,9 @@ C.prototype._setCancelVisible = function (visible) {
 };
 
 C.prototype._setStatus = function (text, cls = '') {
-  this._statusEl.textContent = text || (this._stagedFile ? 'Ready to print' : 'Choose a document');
+  const key = this._stagedFile ? 'status.ready' : 'status.choose';
+  this._statusMessage = text ? null : { key, values: {}, cls };
+  setText(this._statusEl, text || this._t(key));
   this._statusEl.className = 'status' + (cls ? ' ' + cls : '');
 };
 
@@ -335,7 +535,7 @@ C.prototype._pick = function () {
 
 C.prototype._upload = async function (file) {
   if (this._busy || this._activeJobId != null) return;
-  const error = fileError(file);
+  const error = fileError(file, this._hass);
   if (error) { this._setStatus(error, 'err'); return; }
   let sensorId;
   try {
@@ -349,7 +549,7 @@ C.prototype._upload = async function (file) {
   this._setCancelVisible(false);
   this._busy = true;
   this._card.classList.add('busy');
-  this._setStatus('Uploading…');
+  this._setMessage('status.uploading');
   this._cleanupPicker?.();
   this._syncControls();
 
@@ -360,15 +560,15 @@ C.prototype._upload = async function (file) {
   let definitelyRejected = false;
   try {
     await this._refreshOptions();
-    if (!this.isConnected) { definitelyRejected = true; throw new Error('Printer settings changed. Try again.'); }
+    if (!this.isConnected) { definitelyRejected = true; throw new Error(this._t('error.changed')); }
     const options = this._optionCapabilities?.body?.request_options || [];
     if (this._settingsError) { definitelyRejected = true; throw new Error(this._settingsError); }
     if ((!options.includes('copies') && this._settings.copies !== 1)
         || ['media','media_source','color_mode','quality'].some(key => this._settings[key] && !options.includes(key))) {
       definitelyRejected = true;
-      throw new Error('Selected settings are unavailable. Reset them in Options or check the printer connection.');
+      throw new Error(this._t('error.settings'));
     }
-    if (this._duplex && !options.includes('sides')) { definitelyRejected = true; throw new Error('Two-sided settings are unavailable. Open Options to check this printer.'); }
+    if (this._duplex && !options.includes('sides')) { definitelyRejected = true; throw new Error(this._t('error.duplex')); }
     if (options.includes('copies')) form.append('copies', String(this._settings.copies));
     if (options.includes('sides')) form.append('sides', this._duplex ? this._settings.binding : 'one-sided');
     for (const key of ['media', 'media_source', 'color_mode', 'quality']) {
@@ -391,7 +591,7 @@ C.prototype._upload = async function (file) {
       throw new Error(msg || `HTTP ${resp.status}`);
     }
     if (!Number.isInteger(body?.job_id) || body.job_id <= 0) {
-      throw new Error('The printer did not return a valid job number.');
+      throw new Error(this._t('error.response'));
     }
     const name = typeof body.filename === 'string' && body.filename ? body.filename : file.name;
     this._stagedFile = null;
@@ -399,19 +599,19 @@ C.prototype._upload = async function (file) {
     this._activeJobId = body?.job_id ?? null;
     this._activeSensorId = sensorId;
     this._setCancelVisible(true);
-    this._setStatus(`Submitted ✓ ${name}`, 'ok');
+    this._setMessage('status.submitted', { name }, 'ok');
     this._warningEl.textContent = typeof body.warning === 'string' ? body.warning : '';
     // Subscribe to the job sensor's updates for this job-id.
     this._trackPrintProgress(sensorId).catch((e) => {
       console.warn('[ipp-print] progress tracking error', e);
       if (this._activeJobId === body?.job_id) {
-        this._setStatus('Job submitted (progress unavailable)', 'ok');
+        this._setMessage('status.submitted_untracked', {}, 'ok');
       }
     });
   } catch (err) {
     if (!definitelyRejected) this._stagedFile = null;
-    const guidance = definitelyRejected ? '' : ' Check the printer queue before choosing the file again; it may already have printed.';
-    this._setStatus('Submit failed: ' + (err?.message || err) + guidance, 'err');
+    const guidance = definitelyRejected ? '' : this._msg('help.uncertain');
+    this._setMessage('status.submit_failed', { error: err?.message || err, guidance }, 'err');
   } finally {
     this._busy = false;
     this._card.classList.remove('busy');
@@ -480,22 +680,21 @@ C.prototype._trackPrintProgress = async function (sensorId) {
     const pagesTotal = attrs?.pages_total;
     if (state === 'processing') {
       const progress = pagesTotal && pagesDone != null
-        ? ` page ${pagesDone}/${pagesTotal}` : pagesDone ? ` page ${pagesDone}` : '';
-      this._setStatus(`Printing${progress}…`);
+        ? this._msg('status.page_total', { count: pagesDone, total: pagesTotal }) : pagesDone ? this._msg('status.page', { count: pagesDone }) : '';
+      this._setMessage('status.printing', { progress });
     } else if (state === 'pending' || state === 'pending-held') {
-      this._setStatus('Queued for printer…');
+      this._setMessage('status.queued');
     } else if (state === 'processing-stopped') {
-      this._setStatus('Printing paused' + (attrs?.state_reasons ? `: ${attrs.state_reasons}` : ''));
+      this._setMessage('status.paused', { reason: attrs?.state_reasons ? this._msg('status.reason', { reason: attrs.state_reasons }) : '' });
     } else if (state === 'completed') {
       const pages = pagesDone ?? pagesTotal;
-      const pagesMsg = pages ? ` (${pages} page${pages > 1 ? 's' : ''})` : '';
-      this._setStatus(`Print complete ✓${pagesMsg}`, 'ok');
+      this._setMessage(pages ? 'status.complete' : 'status.complete_unknown', { count: pages }, 'ok');
     } else if (state === 'canceled') {
-      this._setStatus('Print canceled', 'err');
+      this._setMessage('status.canceled', {}, 'err');
     } else if (state === 'aborted') {
-      this._setStatus('Print failed' + (attrs?.state_reasons ? `: ${attrs.state_reasons}` : ''), 'err');
+      this._setMessage('status.failed', { reason: attrs?.state_reasons ? this._msg('status.reason', { reason: attrs.state_reasons }) : '' }, 'err');
     } else if (state === 'unknown') {
-      this._setStatus('Print outcome unknown (printer removed job)', 'err');
+      this._setMessage('status.unknown', {}, 'err');
     }
     this._setCancelVisible(ACTIVE_STATES.has(state));
   };
@@ -510,7 +709,7 @@ C.prototype._trackPrintProgress = async function (sensorId) {
     if (cur.attributes.job_id !== ourJobId) {
       if (sawMatchingState) {
         sawMatchingState = false;
-        this._setStatus('Job submitted (printer is tracking another job)', 'ok');
+        this._setMessage('status.other_job', {}, 'ok');
         this._setCancelVisible(false);
         this._progressSafety = setTimeout(() => {
           if (isCurrent() && !stopped) stop();
@@ -539,7 +738,7 @@ C.prototype._trackPrintProgress = async function (sensorId) {
     this._progressSafety = setTimeout(() => {
       if (!isCurrent() || stopped) return;
       stop();
-      this._setStatus('Job submitted (no further updates)', 'ok');
+      this._setMessage('status.no_updates', {}, 'ok');
     }, 90_000);
   }
 
@@ -548,7 +747,7 @@ C.prototype._trackPrintProgress = async function (sensorId) {
       if (stopped || !isCurrent()) return;
       if (msg?.r?.includes(sensorId)) {
         stop();
-        this._setStatus('Job submitted (printer sensor unavailable)', 'err');
+        this._setMessage('status.sensor_unavailable', {}, 'err');
         return;
       }
       const add = msg?.a?.[sensorId];
@@ -584,8 +783,8 @@ window.customCards = window.customCards || [];
 if (!window.customCards.find((c) => c.type === TAG)) {
   window.customCards.push({
     type: TAG,
-    name: 'IPP Print Upload',
-    description: 'Upload a PDF or image straight to an IPP printer with live job progress.',
+    name: localize('picker.name'),
+    description: localize('picker.description'),
     preview: true,
   });
 }
@@ -708,9 +907,11 @@ function optionChoices(select, choices, value) {
 }
 function addOptionField(panel, key, label, type = 'select') {
   const wrapper = document.createElement('label');
-  wrapper.className = 'option-field'; wrapper.textContent = label;
+  wrapper.className = 'option-field';
+  const caption = translatedText(label, {}, panel._hass); wrapper.append(caption);
   const input = document.createElement(type === 'select' ? 'select' : 'input');
   input.dataset.option = key;
+  input.setAttribute('aria-describedby', 'options-help');
   if (type !== 'select') input.type = type;
   wrapper.append(input); panel.append(wrapper);
   return input;
@@ -763,7 +964,7 @@ C.prototype._toggleOptions = function (open, restoreFocus = true) {
       },
     }));
     if (!this._optionsPanel.open) this._optionsPanel.showModal?.();
-    this._optionsPanel.querySelector('select:not(:disabled), input:not(:disabled)')?.focus();
+    this._optionsPanel.querySelector('h2')?.focus();
   } else {
     this._optionsPanel.close?.();
     this._optionsDialog?.closeDialog();
@@ -774,10 +975,11 @@ C.prototype._createOptionsPanel = function () {
   this._optionsButton = this.shadowRoot.querySelector('.options-button');
   this._optionsButton[Symbol.for('HA focus target')] = true;
   const panel = document.createElement('dialog');
+  panel._hass = this._hass;
   panel.className = 'options'; panel.id = 'options'; panel.hidden = true;
   panel.setAttribute('aria-labelledby', 'options-heading');
-  const heading = document.createElement('h2'); heading.id = 'options-heading';
-  heading.textContent = this.localName === 'escl-scan-card' ? 'Scan options' : 'Print options';
+  const heading = document.createElement('h2'); heading.id = 'options-heading'; heading.tabIndex = -1; heading.autofocus = true;
+  heading.dataset.i18n = 'dialog.title'; heading.textContent = this._t('dialog.title');
   panel.append(heading); this.shadowRoot.append(panel);
   panel.addEventListener('cancel', event => { event.preventDefault(); this._toggleOptions(false); });
   // Native dismissals can close the panel without going through our buttons.
@@ -790,12 +992,12 @@ C.prototype._createOptionsPanel = function () {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this._toggleOptions(false); }
   });
   this._optionHelp = document.createElement('div');
-  this._optionHelp.className = 'options-help'; this._optionHelp.setAttribute('aria-live', 'polite');
+  this._optionHelp.id = 'options-help'; this._optionHelp.className = 'options-help'; this._optionHelp.setAttribute('aria-live', 'polite');
   return panel;
 };
 C.prototype._finishOptionsPanel = function () {
   this._optionsPanel.append(this._optionHelp);
-  const done = document.createElement('button'); done.type = 'button'; done.textContent = 'Done';
+  const done = document.createElement('button'); done.type = 'button'; done.dataset.i18n = 'action.done'; done.textContent = this._t('action.done');
   done.addEventListener('click', () => this._toggleOptions(false));
   this._optionsPanel.append(done);
 };
@@ -804,23 +1006,23 @@ C.prototype._finishOptionsPanel = function () {
 function readableKeyword(value) {
   return String(value).replace(/[_-]+/g, ' ').replace(/\b[a-z]/g, letter => letter.toUpperCase());
 }
-function paperLabel(value) {
+function paperLabel(value, hass) {
   const raw = String(value);
   const match = /^([a-z]+)_([^_]+)_(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(in|mm)$/.exec(raw.toLowerCase());
   if (!match) return readableKeyword(raw);
   const [, family, name, width, height, unit] = match;
   const names = {
-    na_letter: 'Letter', na_legal: 'Legal', na_executive: 'Executive',
-    na_ledger: 'Ledger', na_tabloid: 'Tabloid', na_invoice: 'Statement',
-    na_foolscap: 'Foolscap', na_oficio: 'Oficio', na_monarch: 'Monarch envelope',
-    'om_small-photo': 'Photo', jpn_hagaki: 'Hagaki postcard',
-    jpn_oufuku: 'Reply postcard', custom_min: 'Custom minimum', custom_max: 'Custom maximum',
+    na_letter: localize('paper.letter', {}, hass), na_legal: localize('paper.legal', {}, hass), na_executive: localize('paper.executive', {}, hass),
+    na_ledger: localize('paper.ledger', {}, hass), na_tabloid: localize('paper.tabloid', {}, hass), na_invoice: localize('paper.statement', {}, hass),
+    na_foolscap: localize('paper.foolscap', {}, hass), na_oficio: localize('paper.oficio', {}, hass), na_monarch: localize('paper.monarch', {}, hass),
+    'om_small-photo': localize('paper.photo', {}, hass), jpn_hagaki: localize('paper.hagaki', {}, hass),
+    jpn_oufuku: localize('paper.reply', {}, hass), custom_min: localize('paper.min', {}, hass), custom_max: localize('paper.max', {}, hass),
   };
   let label = names[`${family}_${name}`];
-  if (!label && family === 'na' && name.startsWith('number-')) label = `#${name.slice(7)} envelope`;
-  if (!label && family === 'na' && name.startsWith('index-')) label = 'Index card';
+  if (!label && family === 'na' && name.startsWith('number-')) label = localize('paper.envelope', { name: '#' + name.slice(7) }, hass);
+  if (!label && family === 'na' && name.startsWith('index-')) label = localize('paper.index', {}, hass);
   if (!label && family === 'iso' && /^a\d+$/.test(name)) label = name.toUpperCase();
-  if (!label && family === 'iso' && /^(c\d+|dl)$/.test(name)) label = `${name.toUpperCase()} envelope`;
+  if (!label && family === 'iso' && /^(c\d+|dl)$/.test(name)) label = localize('paper.envelope', { name: name.toUpperCase() }, hass);
   if (!label && ['prc', 'roc'].includes(family) && /^\d+k(?:-\d+x\d+)?$/.test(name)) {
     label = `${family.toUpperCase()} ${name.split('-')[0].toUpperCase()}`;
   }
@@ -829,14 +1031,14 @@ function paperLabel(value) {
     label = `${family.toUpperCase()} ${readableKeyword(name)}`;
   }
   if (!label) label = readableKeyword(`${family}_${name}`);
-  return `${label} (${width} × ${height} ${unit})`;
+  return localize('paper.dimensions', { name: label, width, height, unit }, hass);
 }
-function printOptionLabel(key, value) {
-  if (key === 'media') return paperLabel(value);
+function printOptionLabel(key, value, hass) {
+  if (key === 'media') return paperLabel(value, hass);
   const labels = {
-    media_source: { auto: 'Automatic', manual: 'Manual feed', 'by-pass-tray': 'Bypass tray', 'main': 'Main tray', 'alternate': 'Alternate tray' },
-    color_mode: { auto: 'Automatic', 'auto-monochrome': 'Auto black and white', monochrome: 'Black and white', color: 'Color' },
-    quality: { 3: 'Draft', 4: 'Normal', 5: 'Best' },
+    media_source: { auto: localize('choice.automatic', {}, hass), manual: localize('choice.manual_feed', {}, hass), 'by-pass-tray': localize('choice.bypass', {}, hass), 'main': localize('choice.main_tray', {}, hass), 'alternate': localize('choice.alternate_tray', {}, hass) },
+    color_mode: { auto: localize('choice.automatic', {}, hass), 'auto-monochrome': localize('choice.auto_monochrome', {}, hass), monochrome: localize('choice.monochrome', {}, hass), color: localize('field.color', {}, hass) },
+    quality: { 3: localize('choice.draft', {}, hass), 4: localize('choice.normal', {}, hass), 5: localize('choice.best', {}, hass) },
   };
   const label = labels[key]?.[value];
   return typeof label === 'string' ? label : readableKeyword(value);
@@ -845,13 +1047,13 @@ function printOptionLabel(key, value) {
 C.prototype._installOptions = function () {
   const panel = this._createOptionsPanel();
   this._optionFields = {
-    entity_id: addOptionField(panel, 'entity_id', 'Printer'),
-    copies: addOptionField(panel, 'copies', 'Copies', 'number'),
-    binding: addOptionField(panel, 'binding', 'Two-sided binding'),
-    media: addOptionField(panel, 'media', 'Paper'),
-    media_source: addOptionField(panel, 'media_source', 'Tray'),
-    color_mode: addOptionField(panel, 'color_mode', 'Color'),
-    quality: addOptionField(panel, 'quality', 'Quality'),
+    entity_id: addOptionField(panel, 'entity_id', 'field.printer'),
+    copies: addOptionField(panel, 'copies', 'field.copies', 'number'),
+    binding: addOptionField(panel, 'binding', 'field.binding'),
+    media: addOptionField(panel, 'media', 'field.paper'),
+    media_source: addOptionField(panel, 'media_source', 'field.tray'),
+    color_mode: addOptionField(panel, 'color_mode', 'field.color'),
+    quality: addOptionField(panel, 'quality', 'field.quality'),
   };
   for (const [key, field] of Object.entries(this._optionFields)) {
     field.addEventListener('change', () => {
@@ -927,60 +1129,74 @@ C.prototype._syncOptions = function (locked) {
   const hass = this._getHass();
   const printers = Object.values(hass?.entities || {}).filter(e => e.platform === 'ipp_print' && e.entity_id?.startsWith('sensor.')).slice(0, 128);
   let selected = ''; try { selected = this._sensorId() || ''; } catch {}
-  optionChoices(fields.entity_id, [['', 'Select a printer'], ...printers.map(e => [e.entity_id, hass?.states?.[e.entity_id]?.attributes?.friendly_name || e.entity_id])], selected);
+  optionChoices(fields.entity_id, [['', this._t('choice.printer')], ...printers.map(e => [e.entity_id, hass?.states?.[e.entity_id]?.attributes?.friendly_name || e.entity_id])], selected);
   fields.entity_id.closest('label').hidden = printers.length < 2;
   fields.entity_id.disabled = locked;
   fields.copies.min = '1'; fields.copies.max = String(Math.min(99, supported.copies_max || 99));
   if (this.shadowRoot.activeElement !== fields.copies) fields.copies.value = settings.copies;
   fields.copies.disabled = locked || (!options.includes('copies') && settings.copies === 1);
   const sides = Array.isArray(supported.sides) ? supported.sides : ['two-sided-long-edge','two-sided-short-edge'];
-  optionChoices(fields.binding, [['two-sided-long-edge', 'Long edge', !sides.includes('two-sided-long-edge')], ['two-sided-short-edge', 'Short edge', !sides.includes('two-sided-short-edge')]], settings.binding);
+  optionChoices(fields.binding, [['two-sided-long-edge', this._t('choice.long_edge'), !sides.includes('two-sided-long-edge')], ['two-sided-short-edge', this._t('choice.short_edge'), !sides.includes('two-sided-short-edge')]], settings.binding);
   fields.binding.disabled = locked || !this._duplex || !options.includes('sides');
   const lists = { media: supported.media, media_source: supported.media_sources, color_mode: supported.color_modes, quality: supported.qualities };
   for (const [key, list] of Object.entries(lists)) {
     const choices = Array.isArray(list) ? list.filter(x => typeof x === 'string' || Number.isInteger(x)).slice(0,128) : [];
     if (settings[key] && !choices.some(x => String(x) === String(settings[key]))) {
       choices.push(settings[key]);
-      this._settingsError = 'A selected setting is unavailable for this document. Choose Device default or another supported value.';
+      this._settingsError = this._t('error.setting_unavailable');
     }
-    optionChoices(fields[key], [['','Device default'], ...choices.map(value => [value, printOptionLabel(key, value)])], settings[key]);
+    optionChoices(fields[key], [['',this._t('choice.device_default')], ...choices.map(value => [value, printOptionLabel(key, value, this._hass)])], settings[key]);
     fields[key].disabled = locked || (!settings[key] && (!options.includes(key) || !choices.length));
   }
-  if (this._duplex && !sides.includes(settings.binding)) this._settingsError = 'Choose another binding or turn off Two-sided.';
-  if (!Number.isInteger(settings.copies) || settings.copies < 1 || settings.copies > Number(fields.copies.max)) this._settingsError = `Enter a copy count from 1 to ${fields.copies.max}.`;
-  this._optionHelp.textContent = this._settingsError || (!body ? 'Choose a printer and file to load settings. Device defaults apply while settings are unavailable.'
-    : !this._stagedFile && this._activeJobId == null ? 'Choose a document to load its paper, tray, color and quality settings.'
-    : this._duplex && !sides.includes(settings.binding) ? 'This printer does not advertise the selected binding. Choose another binding or turn off Two-sided.'
-    : `Settings apply to the next print.${Array.isArray(supported.media_ready) && supported.media_ready.length ? ' Loaded: ' + supported.media_ready.map(paperLabel).join(', ') + '.' : ''}`);
+  if (this._duplex && !sides.includes(settings.binding)) this._settingsError = this._t('error.binding');
+  if (!Number.isInteger(settings.copies) || settings.copies < 1 || settings.copies > Number(fields.copies.max)) this._settingsError = this._t('error.copies_range', { max: fields.copies.max });
+  setText(this._optionHelp, this._settingsError || (!body ? this._t('help.unavailable')
+    : !this._stagedFile && this._activeJobId == null ? this._t('help.document')
+    : this._duplex && !sides.includes(settings.binding) ? this._t('help.binding')
+    : this._t('help.next_job', { loaded: Array.isArray(supported.media_ready) && supported.media_ready.length ? this._t('help.loaded', { paper: supported.media_ready.map(value => paperLabel(value, this._hass)).join(', ') }) : '' })));
 };
 C.getConfigElement = function () { return document.createElement(TAG + '-editor'); };
 if (!customElements.get(TAG + '-editor')) {
   customElements.define(TAG + '-editor', class extends HTMLElement {
     setConfig(config) { this._config = config || {}; this._render(); }
-    set hass(hass) { this._hass = hass; if (this._form) this._form.hass = hass; }
+    set hass(hass) { this._hass = hass; if (this._form) this._render(); }
     _render() {
       if (!this._form) {
         this._form = document.createElement('ha-form');
-        this._form.schema = [
-          { name: 'title', selector: { text: {} } },
-          { name: 'entity', selector: { entity: { domain: 'sensor', integration: 'ipp_print' } } },
-          { name: 'copies', selector: { number: { min: 1, max: 99, mode: 'box' } } },
-          { name: 'duplex', selector: { boolean: {} } },
-          { name: 'binding', selector: { select: { options: ['two-sided-long-edge','two-sided-short-edge'] } } },
-          { name: 'duplex_in_options', selector: { boolean: {} } },
-        ];
-        const labels = { title: 'Title', entity: 'Printer sensor (optional)', copies: 'Default copies', duplex: 'Two-sided by default', binding: 'Default binding', duplex_in_options: 'Show Two-sided inside Options' };
-        this._form.computeLabel = field => labels[field.name] || field.name;
         this._form.addEventListener('value-changed', event => {
           event.stopPropagation();
           const config = { ...this._config, ...event.detail.value };
           if (!config.entity) delete config.entity;
+          if (!config.title) delete config.title;
+          if (config.copies == null || config.copies === '') delete config.copies;
+
           this._config = config;
           this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
         });
         this.append(this._form);
       }
-      this._form.hass = this._hass; this._form.data = this._config;
+      const language = cardLanguage(this._hass);
+      if (language !== this._language) {
+        this._language = language;
+        const t = key => localize(key, {}, this._hass);
+        const choices = entries => entries.map(([value, key]) => ({ value, label: t(key) }));
+        this._form.schema = [
+          { name: 'title', selector: { text: {} } },
+          { name: 'entity', selector: { entity: { domain: 'sensor', integration: 'ipp_print' } } },
+          { name: 'copies', selector: { number: { min: 1, max: 99, mode: 'box' } } },
+          { name: 'duplex', selector: { boolean: {} } },
+          { name: 'binding', selector: { select: { options: choices([['two-sided-long-edge','choice.long_edge'],['two-sided-short-edge','choice.short_edge']]) } } },
+          { name: 'duplex_in_options', selector: { boolean: {} } },
+        ];
+        const labels = {"title": "editor.title", "entity": "editor.entity", "copies": "editor.copies", "duplex": "editor.duplex", "binding": "editor.binding", "duplex_in_options": "editor.duplex_options"};
+        this._form.computeLabel = field => t(labels[field.name]);
+        this._form.computeHelper = field => {
+          const key = 'editor.help.' + field.name;
+          const help = t(key); return help === key ? '' : help;
+        };
+      }
+      this._form.hass = this._hass;
+      this._form.data = { ...{ copies: 1, duplex: false, binding: 'two-sided-long-edge', duplex_in_options: false }, ...this._config };
     }
   });
 }
