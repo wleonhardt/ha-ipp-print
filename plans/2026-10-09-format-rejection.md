@@ -1,6 +1,7 @@
 # Unsupported image format reported as a connection error
 
-Status: fixed for print 0.10.2; local validation passed, deployment verification pending.
+Status: released and installed as print 0.10.2; local, hosted and live endpoint
+validation pass. The user's original image still has not been inspected.
 
 The user confirmed the paired native cards and navigation work on the physical
 phone, then reported a print failure for a file named with a `.jpg` extension.
@@ -34,3 +35,16 @@ shared-core parity pass. New tests cover mislabeled PNG with/without explicit
 card defaults, no capability/validation/print calls after a known mismatch, and
 stale generic exclusions followed by fresh supported-format data. Existing
 JPEG/PNG/PDF upload, unknown capability and transport-failure tests still pass.
+
+Release `v0.10.2`, commit `2bebacf`: all six hosted jobs passed in validation
+`37948785826`; release `37948788648` published successfully. Backed up the prior
+integration to `/config/.document-card-backups/before-print-format-fix-v0102-20261009.tar.gz`.
+Both job sensors were confirmed idle, then HA was restarted to load the backend
+change. Installed __init__.py SHA-256 matches source:
+`8271144a322c9b226e9d66037f3483bfc4400904acaaa9a2083fdacb1c6bc11a`.
+
+After restart, the same mislabeled tiny PNG upload returns 415, identifies PNG,
+offers PDF/JPEG, and reports `job_may_exist=false`; the job sensor stays idle.
+A direct JPEG Validate-Job check with copies=1, one-sided, and the fresh Letter
+default returned success with no warning. Validate-Job contains no document and
+does not submit a print job. This is not a physical print of the user's file.

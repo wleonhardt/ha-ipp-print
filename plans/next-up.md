@@ -2,10 +2,14 @@
 
 ## Queue
 
-- Active: Phase 5 native Tile and optional Mushroom features, print 0.10.1 /
-  scan 0.11.1. Minimum/current host checks and 576 paired tests pass; installed.
-  Both releases and all hosted checks pass. The intermittent Android startup
-  race is patched; physical phone retry remains. Standalone cards stay supported.
+- Phase 5 native Tile/Mushroom features accepted: the user confirmed cards and
+  navigation work on the phone after print 0.10.1 / scan 0.11.1 fixed the startup
+  registry race. Standalone cards stay supported; existing dashboards stay unchanged.
+- Print 0.10.2 is released/installed: unsupported PNG now gets format guidance
+  instead of a connection error. 220 Python / 62 card tests and hosted checks
+  pass; the live rejection and JPEG Validate-Job checks pass without printing.
+  The original user image has not been inspected. [Validation](2026-10-09-format-rejection.md).
+- Next planned phase: durable Latest scan/recent activity; not started.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
 
 ## Done
