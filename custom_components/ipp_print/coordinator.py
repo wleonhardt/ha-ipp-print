@@ -24,6 +24,8 @@ from typing import Any, Callable
 
 from homeassistant.core import HomeAssistant
 
+from .activity import PrintActivity
+
 from .printer import (
     JobAttributes,
     JobGoneError,
@@ -90,6 +92,7 @@ class JobCoordinator:
         self._hass = hass
         self._client = client
         self._entry_id = entry_id
+        self.activity = PrintActivity(hass, entry_id)
         self._stopped = False
         self._jobs: dict[int, TrackedJob] = {}
         self._current: TrackedJob | None = None
@@ -134,6 +137,7 @@ class JobCoordinator:
         )
         self._jobs[job_id] = job
         self._current = job
+        self.activity.record(job)
         self._notify()
         self._ensure_poll_loop()
         _LOGGER.info("tracking new job %s (%s)", job_id, filename)
@@ -154,6 +158,11 @@ class JobCoordinator:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        await self.activity.async_close()
+
+    async def async_prune_activity(self, now=None) -> None:
+        if not self._stopped and self.activity.prune():
+            self._notify()
 
     async def _poll_loop(self) -> None:
         _LOGGER.debug("poll loop starting; %d job(s) tracked", len(self._jobs))
@@ -260,6 +269,7 @@ class JobCoordinator:
         job.state = state
         job.state_reasons = reasons
         job.finished_at = datetime.now(timezone.utc)
+        self.activity.record(job)
         _LOGGER.info(
             "job %s reached terminal state %s (%s)",
             job.job_id, state, reasons or "no reason",

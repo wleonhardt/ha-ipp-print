@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import hashlib
 import logging
 from pathlib import Path
@@ -25,9 +26,12 @@ from homeassistant.core import (
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.service import async_extract_config_entry_ids
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
+from .activity import STORAGE_VERSION, store_key
 from .const import (
     ATTR_COPIES,
     ATTR_DOCUMENT_FORMAT,
@@ -140,6 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         # Setup remains usable while the printer is asleep/offline.
+        await coordinator.activity.async_load()
         printer_info = await capability_cache.async_get()
         if printer_info is None:
             _LOGGER.warning("Printer capabilities unavailable; will retry on demand")
@@ -200,6 +205,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Reload entry when options change.
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        entry.async_on_unload(async_track_time_interval(
+            hass, coordinator.async_prune_activity, timedelta(hours=1)
+        ))
         connection.start()
         return True
 
@@ -215,6 +223,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_shutdown()
         await client.async_close()
         raise
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove private activity metadata with its configured printer."""
+    await Store(hass, STORAGE_VERSION, store_key(entry.entry_id)).async_remove()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
