@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.7.2] - 2026-10-08
+
+### Fixed
+- Close Options through Home Assistant's dialog navigation so Back dismisses
+  settings before leaving the dashboard. Reset the native dialog when the card
+  is removed, preventing an inline settings panel after returning to the page.
+- Keep native dismissals, Done and Escape synchronized with the Options button
+  and preserve selected settings when the same card reconnects.
+
 ## [0.7.1] - 2026-10-08
 
 ### Changed

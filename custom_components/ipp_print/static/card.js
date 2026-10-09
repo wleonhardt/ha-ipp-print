@@ -99,6 +99,7 @@ C.prototype._render = function () {
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
       .options-button { margin-left: auto; flex: none; width: 44px; padding: 8px; }
       .options { box-sizing: border-box; display: grid; gap: 12px; width: min(400px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; padding: 20px; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); color: var(--primary-text-color); background: var(--card-background-color); }
+      .options:not([open]) { display: none; }
       .options::backdrop { background: rgba(0, 0, 0, .45); }
       .options h2 { font-size: 20px; margin: 0 0 4px; }
       .option-field { display: grid; gap: 4px; min-width: 0; font-size: 14px; }
@@ -437,6 +438,7 @@ C.prototype._stopProgress = function () {
 };
 
 C.prototype._disconnected = function () {
+  this._toggleOptions(false, false);
   this._cleanupPicker?.();
   this._optionsRequest?.abort();
   this._stopProgress();
@@ -713,20 +715,64 @@ function addOptionField(panel, key, label, type = 'select') {
   wrapper.append(input); panel.append(wrapper);
   return input;
 }
-C.prototype._toggleOptions = function (open) {
+// Let HA own Back navigation, including the Android app's dialog handling.
+// The native panel stays in the card's shadow root to retain its theme/styles.
+const OPTIONS_TAG = `${TAG}-options-dialog`;
+if (!customElements.get(OPTIONS_TAG)) {
+  customElements.define(OPTIONS_TAG, class extends HTMLElement {
+    showDialog(params) {
+      this._open = true;
+      const card = params?.card;
+      this._card = card;
+      // Older HA history entries cannot serialize the live card reference.
+      if (!card) { this.closeDialog(); return; }
+      card._optionsDialog = this;
+      // HA may finish loading the host after navigation or a quick dismissal.
+      if (!card.isConnected || !card._optionsOpen) this.closeDialog();
+    }
+    closeDialog() {
+      if (!this._open) return true;
+      this._open = false;
+      const card = this._card;
+      this._card = null;
+      if (card) {
+        card._optionsDialog = null;
+        card._toggleOptions(false, card.isConnected);
+      }
+      this.dispatchEvent(new CustomEvent('dialog-closed', {
+        bubbles: true, composed: true, detail: { dialog: OPTIONS_TAG },
+      }));
+      return true;
+    }
+  });
+}
+C.prototype._toggleOptions = function (open, restoreFocus = true) {
+  if (!this._optionsPanel || (open && (!this.isConnected || this._optionsOpen))) return;
+  const wasOpen = this._optionsOpen;
   this._optionsOpen = open;
   this._optionsPanel.hidden = !open;
   this._optionsButton.setAttribute('aria-expanded', String(open));
   if (open) {
     this._refreshOptions();
+    this._optionsButton.focus();
+    this.dispatchEvent(new CustomEvent('show-dialog', {
+      bubbles: true, composed: true,
+      detail: {
+        dialogTag: OPTIONS_TAG, dialogImport: () => Promise.resolve(),
+        dialogParams: { card: this },
+      },
+    }));
     if (!this._optionsPanel.open) this._optionsPanel.showModal?.();
     this._optionsPanel.querySelector('select:not(:disabled), input:not(:disabled)')?.focus();
   } else {
-    this._optionsPanel.close?.(); this._optionsButton.focus();
+    this._optionsPanel.close?.();
+    this._optionsDialog?.closeDialog();
+    if (wasOpen && restoreFocus && this.isConnected) this._optionsButton.focus();
   }
 };
 C.prototype._createOptionsPanel = function () {
   this._optionsButton = this.shadowRoot.querySelector('.options-button');
+  this._optionsButton[Symbol.for('HA focus target')] = true;
   const panel = document.createElement('dialog');
   panel.className = 'options'; panel.id = 'options'; panel.hidden = true;
   panel.setAttribute('aria-labelledby', 'options-heading');
@@ -734,10 +780,14 @@ C.prototype._createOptionsPanel = function () {
   heading.textContent = this.localName === 'escl-scan-card' ? 'Scan options' : 'Print options';
   panel.append(heading); this.shadowRoot.append(panel);
   panel.addEventListener('cancel', event => { event.preventDefault(); this._toggleOptions(false); });
+  // Native dismissals can close the panel without going through our buttons.
+  panel.addEventListener('close', () => {
+    if (!panel.open) this._toggleOptions(false);
+  });
   this._optionsPanel = panel;
   this._optionsButton.addEventListener('click', () => this._toggleOptions(!this._optionsOpen));
   panel.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.stopPropagation(); this._toggleOptions(false); }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this._toggleOptions(false); }
   });
   this._optionHelp = document.createElement('div');
   this._optionHelp.className = 'options-help'; this._optionHelp.setAttribute('aria-live', 'polite');

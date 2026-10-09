@@ -59,6 +59,13 @@ function boot() {
     pretendToBeVisual: true,
   });
   windows.add(dom.window);
+  // jsdom has no native dialog lifecycle; model its asynchronous close event.
+  dom.window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  dom.window.HTMLDialogElement.prototype.close = function () {
+    if (!this.open) return;
+    this.open = false;
+    dom.window.setTimeout(() => this.dispatchEvent(new dom.window.Event('close')), 0);
+  };
   dom.window.eval(CARD_SRC);
   return dom.window;
 }
@@ -670,4 +677,114 @@ test('a capability outage never silently discards an explicit copy count', async
   assert.equal(el._optionFields.copies.disabled,false);
   changeOption(win,el,'copies','1');await el._upload(chosen);
   assert.equal(calls.fetch.length,1);
+});
+
+// Exercise HA's public showDialog/closeDialog contract. Real browser history
+// and native modal/top-layer behavior are checked on the live paired dashboard.
+async function optionsHost(win, card) {
+  let request;
+  card.addEventListener('show-dialog', event => { request = event.detail; }, { once: true });
+  card._toggleOptions(true);
+  assert.ok(request);
+  await request.dialogImport();
+  const host = win.document.createElement(request.dialogTag);
+  win.document.body.append(host);
+  host.showDialog(request.dialogParams);
+  return host;
+}
+
+test('HA Back closes Options once and preserves selections for the next opening', async () => {
+  const win = boot(), card = mount(win);
+  const host = await optionsHost(win, card);
+  const settings = card._settings;
+  let closed = 0;
+  host.addEventListener('dialog-closed', event => {
+    assert.equal(event.detail.dialog, host.localName);
+    assert.equal(event.bubbles, true);
+    assert.equal(event.composed, true);
+    closed++;
+  });
+  assert.equal(card._optionsPanel.open, true);
+  assert.equal(host.closeDialog(), true); // HA calls this on Back.
+  host.closeDialog();
+  assert.equal(closed, 1);
+  assert.equal(card._optionsPanel.hidden, true);
+  assert.equal(card._optionsPanel.open, false);
+  assert.equal(card._optionsButton.getAttribute('aria-expanded'), 'false');
+  assert.equal(card.shadowRoot.activeElement, card._optionsButton);
+  card._toggleOptions(true);
+  assert.equal(card._settings, settings);
+  assert.equal(card._optionsPanel.open, true);
+  let duplicates = 0;
+  card.addEventListener('show-dialog', () => duplicates++);
+  card._toggleOptions(true);
+  assert.equal(duplicates, 0);
+});
+
+test('leaving and returning to a dashboard never leaves Options open inline', async () => {
+  const win = boot(), card = mount(win);
+  const host = await optionsHost(win, card);
+  let closed = 0;
+  host.addEventListener('dialog-closed', () => closed++);
+  card.remove();
+  win.document.body.append(card);
+  assert.equal(closed, 1);
+  assert.equal(card._optionsPanel.hidden, true);
+  assert.equal(card._optionsPanel.open, false);
+  assert.equal(card._optionsOpen, false);
+  assert.equal(card._optionsButton.getAttribute('aria-expanded'), 'false');
+  card._optionsButton.click();
+  assert.equal(card._optionsPanel.open, true);
+  assert.equal(card._optionsPanel.hidden, false);
+});
+
+test('native dismissals and Done close HA state without a delayed close dismissing a new dialog', async () => {
+  const win = boot(), card = mount(win);
+  const host = await optionsHost(win, card);
+  let closed = 0;
+  host.addEventListener('dialog-closed', () => closed++);
+  card._optionsPanel.close();
+  await new Promise(resolve => win.setTimeout(resolve, 5));
+  assert.equal(card._optionsOpen, false);
+  assert.equal(closed, 1);
+  host.showDialog({ card }); // A delayed HA loader must not leave a stale dialog.
+  assert.equal(host._card, null);
+  await optionsHost(win, card);
+  const done = [...card._optionsPanel.querySelectorAll('button')].find(b => b.textContent === 'Done');
+  done.click();
+  assert.equal(card._optionsPanel.hidden, true);
+  card._optionsButton.click();
+  await new Promise(resolve => win.setTimeout(resolve, 5));
+  assert.equal(card._optionsPanel.open, true);
+  assert.equal(card._optionsOpen, true);
+});
+
+test('a pending HA dialog registration cannot reopen Options after navigation', async () => {
+  const win = boot(), card = mount(win);
+  let request;
+  card.addEventListener('show-dialog', event => { request = event.detail; });
+  card._toggleOptions(true);
+  card.remove();
+  await request.dialogImport();
+  const host = win.document.createElement(request.dialogTag);
+  let closed = 0;
+  host.addEventListener('dialog-closed', () => closed++);
+  host.showDialog(request.dialogParams);
+  assert.equal(closed, 1);
+  assert.equal(host._card, null);
+  win.document.body.append(card);
+  assert.equal(card._optionsPanel.hidden, true);
+  assert.equal(card._optionsPanel.open, false);
+});
+
+test('a restored HA history entry without live parameters closes safely', async () => {
+  const win = boot(), card = mount(win);
+  const host = await optionsHost(win, card);
+  host.closeDialog();
+  let closed = 0;
+  host.addEventListener('dialog-closed', () => closed++);
+  host.showDialog(null);
+  assert.equal(closed, 1);
+  assert.equal(host._card, null);
+  assert.equal(card._optionsPanel.hidden, true);
 });

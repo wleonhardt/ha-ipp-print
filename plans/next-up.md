@@ -17,7 +17,7 @@
   shared Options dialogs and bridge documentation are implemented.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-rollout-2026-10-08.md).
   [Validation and remaining physical gates](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-validation-2026-10-08.md).
-  Installed pair: print 0.7.1 / scan 0.8.1. Live card job 368 with explicit
+  Installed pair: print 0.7.2 / scan 0.8.2. Live card job 368 with explicit
   Letter/automatic tray/monochrome/normal/long-edge duplex completed. User
   confirmed correct one-sheet front/back output; filename cleared. HP requested
   paper-size confirmation on its screen. Scan Letter/grayscale/300 DPI and
@@ -26,6 +26,14 @@
   User confirmed both new Options dialogs fit and work on the phone.
 
 ## Done
+
+- 2026-10-08 — v0.7.2 paired Options navigation fix installed with scan v0.8.2.
+  Back uses HA's dialog manager; disconnection resets the native modal so cached
+  cards cannot show settings inline after returning. Done/native-close and focus
+  stay synchronized. 206 Python / 40 card tests, Ruff and compileall pass.
+  Live HA browser Back/Forward/Done checks pass; physical Android pending.
+  [Shared contract](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/decisions/2026-10-08-shared-card-contract.md)
+  and [paired deployment/validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-validation-2026-10-08.md).
 
 - 2026-10-08 — v0.7.1 label polish from the phone walkthrough. Paper choices
   and loaded-paper text show names plus dimensions, including regional size
