@@ -1,9 +1,9 @@
 # Shared scan and print card rollout
 
-Status: in-progress, 2026-10-08. Phases 1–3 released and installed as print
-0.8.0 / scan 0.9.0. HP physical acceptance and editor/localization/browser gates
-pass; both HACS releases are published. Phase 4 is next; remaining native-host and
-external hardware limits stay separate.
+Status: in-progress, 2026-10-09. Phases 1–4 released and installed as print
+0.9.0 / scan 0.10.0. Both HACS releases are published and all hosted checks pass.
+Phase 5 is next; native-host/minimum-HA/Android and external hardware limits stay
+separate. [Phase 4 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-4-validation.md).
 
 Use the same visual and interaction contract as ha-escl-scan: neutral Home
 Assistant surfaces, one primary action, a visible Two-sided setting and optional
@@ -36,7 +36,7 @@ records the rationale and reference designs. Printer baseline: v0.4.1 (`764fe71`
 - [x] Phase 1 staging and shared mobile layout shipped; phone loading confirmed.
 - [x] Phase 2 capability metadata and upload copies/sides shipped.
 - [x] Phase 3 settings and matching visual editor shipped.
-- [ ] Phase 4 state, reconnect, availability and recovery shipped.
+- [x] Phase 4 state, reconnect, availability and recovery shipped.
 - [ ] Phase 5 native feature and migration examples shipped.
 - [ ] Phase 6 bounded activity metadata shipped if justified.
 

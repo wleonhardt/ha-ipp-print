@@ -2,13 +2,19 @@
 
 ## Queue
 
-- Next: Phase 4 pushed job state, reconnect, target/job-scoped stale responses
-  and checked availability. Replace the dashboard's stale legacy offline summary
-  alongside the availability work. Additional hardware/minimum-HA/native-host
-  checks remain separate coverage limits.
+- Next: Phase 5 native Tile and optional Mushroom features. Validate declared
+  minimum/current HA hosts and Android registration before recommending migration;
+  retain standalone cards. External hardware coverage remains separate.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
 
 ## Done
+
+- 2026-10-09 — Phase 4 released and installed as print 0.9.0 / scan 0.10.0.
+  Pushed job recovery, submission-scoped cancellation, truthful counters/outcomes,
+  native protocol connection sensor and shared presentation core v2. 559 paired
+  tests, all hosted checks and release workflows pass. Real read-only HP checks
+  and isolated two-tab mobile recovery pass; no physical job was submitted.
+  [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-4-validation.md).
 
 - 2026-10-08 — Phase 3 completed, released and installed as print 0.8.0 / scan 0.9.0.
   Catalog-backed English, regional fallback/plurals, native editor labels/help,
