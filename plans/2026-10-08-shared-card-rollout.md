@@ -1,9 +1,10 @@
 # Shared scan and print card rollout
 
-Status: in-progress, 2026-10-09. Phases 1–4 released and installed as print
-0.9.0 / scan 0.10.0. Both HACS releases are published and all hosted checks pass.
-Phase 5 is next; native-host/minimum-HA/Android and external hardware limits stay
-separate. [Phase 4 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-4-validation.md).
+Status: Phases 0–6 complete, 2026-10-09. Current pair is print 0.11.0 /
+scan 0.12.0. Native cards, durable activity, HP refresh/restart/download and
+physical phone acceptance passed. The user-requested main dashboard migration
+is complete, with status tiles and navigation preserved. Next is the
+[compatibility follow-up](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-follow-up-2026-10-09.md).
 
 Use the same visual and interaction contract as ha-escl-scan: neutral Home
 Assistant surfaces, one primary action, a visible Two-sided setting and optional
@@ -32,13 +33,13 @@ records the rationale and reference designs. Printer baseline: v0.4.1 (`764fe71`
 ## Printer implementation checklist
 
 - [x] Phase 0 contract and fixtures adopted; current-host experiment recorded.
-  Minimum-version and Android native-host runtime checks remain before Phase 5.
+  Minimum-version and Android native-host runtime checks passed in Phase 5.
 - [x] Phase 1 staging and shared mobile layout shipped; phone loading confirmed.
 - [x] Phase 2 capability metadata and upload copies/sides shipped.
 - [x] Phase 3 settings and matching visual editor shipped.
 - [x] Phase 4 state, reconnect, availability and recovery shipped.
-- [ ] Phase 5 native feature and migration examples shipped.
-- [ ] Phase 6 bounded activity metadata shipped if justified.
+- [x] Phase 5 native feature and migration examples shipped; main dashboard promoted.
+- [x] Phase 6 bounded activity metadata shipped; HP restart and phone checks passed.
 
 Do not show print duplex/copies controls before Phase 2. Preserve omitted-field
 API behavior; the new settings UI explicitly requests one copy and one-sided

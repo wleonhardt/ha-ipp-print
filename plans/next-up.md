@@ -2,6 +2,11 @@
 
 ## Queue
 
+- Native cards promoted to the main Printer dashboard at the user's request;
+  connection tiles, page chip and navigation preserved. Original rollout complete.
+  Compatibility follow-up is active: isolated real-HP discovery, card-mod Options
+  investigation and device-report coverage. [Follow-up plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-follow-up-2026-10-09.md).
+
 - Paired activity expansion fixed in both live dashboards using one built-in
   Vertical stack per card. Tile, Mushroom and standalone layouts pass independent
   expansion checks at 320/390/768 px; all 610 tests pass. Examples updated;
