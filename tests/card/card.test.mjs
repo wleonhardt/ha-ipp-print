@@ -936,5 +936,5 @@ test('progress updates do not allow a second cancel while the first is pending',
   assert.equal(calls.fetch.length, 1);
   finish(jsonResponse({ ok: true }));
   await cancel;
-  assert.match(el._statusEl.textContent, /Canceling/);
+  assert.match(el._statusEl.textContent, /Cancelling/);
 });
