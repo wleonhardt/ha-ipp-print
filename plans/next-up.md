@@ -31,7 +31,8 @@
   Back uses HA's dialog manager; disconnection resets the native modal so cached
   cards cannot show settings inline after returning. Done/native-close and focus
   stay synchronized. 206 Python / 40 card tests, Ruff and compileall pass.
-  Live HA browser Back/Forward/Done checks pass; physical Android pending.
+  Live HA browser Back/Forward/Done checks pass; user confirmed the Back fix
+  works on the physical phone. All six hosted checks passed on `8ab7703`.
   [Shared contract](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/decisions/2026-10-08-shared-card-contract.md)
   and [paired deployment/validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-validation-2026-10-08.md).
 
