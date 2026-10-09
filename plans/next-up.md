@@ -6,7 +6,7 @@
   experiment and Phase 1 released and installed as print v0.5.0 / scan v0.6.0.
   Physical phone loading confirmed. Phase 2 upload copies/sides and capabilities
   implemented and installed as print v0.6.0 / scan v0.7.0, with subsequent
-  card fixes print v0.6.1 / scan v0.7.1. Live API and print jobs pass; physical four-sheet confirmation and release tags pending.
+  card fixes print v0.6.1 / scan v0.7.1. Live API and print jobs pass; later jobs 368/370 close physical copy-count and binding gates. Release tags pending.
   Phase 3 controls implemented in the compatibility rollout; release gate pending.
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
   [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
@@ -26,7 +26,9 @@
   User confirmed both new Options dialogs fit and work on the phone.
   Job 370 then tested two copies with short-edge duplex through the live card:
   Letter/automatic tray/monochrome/normal, completed 4/4 impressions without a
-  warning; filename cleared. Physical sheet count/orientation confirmation pending.
+  warning; filename cleared. User confirmed exactly two sheets, both sides
+  upright when flipped like a notepad. Remaining HP physical gates are closed.
+  Final shared Phase 3 editor label/help/string audit and release tags remain.
 
 ## Done
 
