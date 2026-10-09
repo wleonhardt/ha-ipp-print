@@ -11,6 +11,12 @@
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
   [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
   [Phase 2 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-2-validation.md).
+- Cross-project compatibility research recommends correcting octet-stream format
+  claims, preserving substitution warnings and improving format-specific settings
+  before expanding Phase 3 controls. Includes typed IPP parsing, media readiness,
+  validation, device fixtures and optional bridge routes. Recommendations only;
+  no runtime changes or new protocol decision accepted.
+  [Research and evidence](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/ipp-escl-compatibility-research-2026-10-08.md).
 
 ## Done
 
