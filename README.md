@@ -136,6 +136,10 @@ Open **Options** (the sliders icon) for printer, copies, two-sided binding,
 paper, tray, color and quality. The common dialog keeps narrow dashboard tiles
 compact. Settings follow advertised support for the selected file; changing the
 file or printer revalidates the choices. Unavailable selections require correction.
+Paper choices show readable names and dimensions, such as **Legal (8.5 × 14 in)**
+and **A5 (148 × 210 mm)**. Regional sizes retain their family (ISO/JIS/PRC/ROC)
+so similarly named paper remains distinguishable. Automations still use the
+original IPP keywords.
 
 The card requests **one copy and one-sided** unless changed. Older backends without
 option metadata retain device defaults, with an explanation. Optional card defaults:

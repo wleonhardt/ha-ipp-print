@@ -17,7 +17,7 @@
   shared Options dialogs and bridge documentation are implemented.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-rollout-2026-10-08.md).
   [Validation and remaining physical gates](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-validation-2026-10-08.md).
-  Installed pair: print 0.7.0 / scan 0.8.1. Live card job 368 with explicit
+  Installed pair: print 0.7.1 / scan 0.8.1. Live card job 368 with explicit
   Letter/automatic tray/monochrome/normal/long-edge duplex completed. User
   confirmed correct one-sheet front/back output; filename cleared. HP requested
   paper-size confirmation on its screen. Scan Letter/grayscale/300 DPI and
@@ -26,6 +26,17 @@
   User confirmed both new Options dialogs fit and work on the phone.
 
 ## Done
+
+- 2026-10-08 — v0.7.1 label polish from the phone walkthrough. Paper choices
+  and loaded-paper text show names plus dimensions, including regional size
+  distinctions; tray/color labels are readable too. All 25 HP paper keywords
+  remain unchanged as option values; selecting Legal keeps its original wire
+  value. Verified the real dialog at 390 x 844, width 356 px without overflow.
+  206 Python / 35 card tests, Ruff and compileall pass. Backed up the previous
+  component/resources to `/config/.document-card-backups/before-print-labels-v071-20261008.tar.gz`;
+  installed and reloaded the print entry (200, require_restart=false).
+  Card resource `/ipp_print/card-9a1442e9c6da.js` matches the repository hash.
+  No test document was submitted during this display-only check.
 
 - 2026-10-08 — v0.6.1 card fix installed: clear the submitted filename when
   print tracking ends. Initial-completion and stale-update regression checks

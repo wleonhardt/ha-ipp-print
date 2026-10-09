@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.7.1] - 2026-10-08
+
+### Changed
+- Show readable paper names with dimensions in Print Options and the loaded-paper
+  hint. Distinguish regional sizes such as ISO B5 and JIS B5; retain printer
+  keywords as submitted values. Tidy tray and automatic black-and-white labels.
+
 ## [0.7.0] - 2026-10-08
 
 ### Added

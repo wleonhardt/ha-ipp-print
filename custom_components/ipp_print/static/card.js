@@ -750,6 +750,48 @@ C.prototype._finishOptionsPanel = function () {
   this._optionsPanel.append(done);
 };
 
+// Display labels only: the original advertised keywords remain option values.
+function readableKeyword(value) {
+  return String(value).replace(/[_-]+/g, ' ').replace(/\b[a-z]/g, letter => letter.toUpperCase());
+}
+function paperLabel(value) {
+  const raw = String(value);
+  const match = /^([a-z]+)_([^_]+)_(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)(in|mm)$/.exec(raw.toLowerCase());
+  if (!match) return readableKeyword(raw);
+  const [, family, name, width, height, unit] = match;
+  const names = {
+    na_letter: 'Letter', na_legal: 'Legal', na_executive: 'Executive',
+    na_ledger: 'Ledger', na_tabloid: 'Tabloid', na_invoice: 'Statement',
+    na_foolscap: 'Foolscap', na_oficio: 'Oficio', na_monarch: 'Monarch envelope',
+    'om_small-photo': 'Photo', jpn_hagaki: 'Hagaki postcard',
+    jpn_oufuku: 'Reply postcard', custom_min: 'Custom minimum', custom_max: 'Custom maximum',
+  };
+  let label = names[`${family}_${name}`];
+  if (!label && family === 'na' && name.startsWith('number-')) label = `#${name.slice(7)} envelope`;
+  if (!label && family === 'na' && name.startsWith('index-')) label = 'Index card';
+  if (!label && family === 'iso' && /^a\d+$/.test(name)) label = name.toUpperCase();
+  if (!label && family === 'iso' && /^(c\d+|dl)$/.test(name)) label = `${name.toUpperCase()} envelope`;
+  if (!label && ['prc', 'roc'].includes(family) && /^\d+k(?:-\d+x\d+)?$/.test(name)) {
+    label = `${family.toUpperCase()} ${name.split('-')[0].toUpperCase()}`;
+  }
+  if (!label && ['iso', 'jis', 'jpn', 'prc', 'roc'].includes(family)) {
+    // The family disambiguates names such as ISO B5 and JIS B5.
+    label = `${family.toUpperCase()} ${readableKeyword(name)}`;
+  }
+  if (!label) label = readableKeyword(`${family}_${name}`);
+  return `${label} (${width} × ${height} ${unit})`;
+}
+function printOptionLabel(key, value) {
+  if (key === 'media') return paperLabel(value);
+  const labels = {
+    media_source: { auto: 'Automatic', manual: 'Manual feed', 'by-pass-tray': 'Bypass tray', 'main': 'Main tray', 'alternate': 'Alternate tray' },
+    color_mode: { auto: 'Automatic', 'auto-monochrome': 'Auto black and white', monochrome: 'Black and white', color: 'Color' },
+    quality: { 3: 'Draft', 4: 'Normal', 5: 'Best' },
+  };
+  const label = labels[key]?.[value];
+  return typeof label === 'string' ? label : readableKeyword(value);
+}
+
 C.prototype._installOptions = function () {
   const panel = this._createOptionsPanel();
   this._optionFields = {
@@ -845,14 +887,13 @@ C.prototype._syncOptions = function (locked) {
   optionChoices(fields.binding, [['two-sided-long-edge', 'Long edge', !sides.includes('two-sided-long-edge')], ['two-sided-short-edge', 'Short edge', !sides.includes('two-sided-short-edge')]], settings.binding);
   fields.binding.disabled = locked || !this._duplex || !options.includes('sides');
   const lists = { media: supported.media, media_source: supported.media_sources, color_mode: supported.color_modes, quality: supported.qualities };
-  const labels = { 3: 'Draft', 4: 'Normal', 5: 'Best', monochrome: 'Black and white', color: 'Color', auto: 'Automatic', 'na_letter_8.5x11in': 'Letter', iso_a4_210x297mm: 'A4' };
   for (const [key, list] of Object.entries(lists)) {
     const choices = Array.isArray(list) ? list.filter(x => typeof x === 'string' || Number.isInteger(x)).slice(0,128) : [];
     if (settings[key] && !choices.some(x => String(x) === String(settings[key]))) {
       choices.push(settings[key]);
       this._settingsError = 'A selected setting is unavailable for this document. Choose Device default or another supported value.';
     }
-    optionChoices(fields[key], [['','Device default'], ...choices.map(value => [value, labels[value] || String(value)])], settings[key]);
+    optionChoices(fields[key], [['','Device default'], ...choices.map(value => [value, printOptionLabel(key, value)])], settings[key]);
     fields[key].disabled = locked || (!settings[key] && (!options.includes(key) || !choices.length));
   }
   if (this._duplex && !sides.includes(settings.binding)) this._settingsError = 'Choose another binding or turn off Two-sided.';
@@ -860,7 +901,7 @@ C.prototype._syncOptions = function (locked) {
   this._optionHelp.textContent = this._settingsError || (!body ? 'Choose a printer and file to load settings. Device defaults apply while settings are unavailable.'
     : !this._stagedFile && this._activeJobId == null ? 'Choose a document to load its paper, tray, color and quality settings.'
     : this._duplex && !sides.includes(settings.binding) ? 'This printer does not advertise the selected binding. Choose another binding or turn off Two-sided.'
-    : `Settings apply to the next print.${Array.isArray(supported.media_ready) && supported.media_ready.length ? ' Loaded: ' + supported.media_ready.map(x => labels[x] || x).join(', ') + '.' : ''}`);
+    : `Settings apply to the next print.${Array.isArray(supported.media_ready) && supported.media_ready.length ? ' Loaded: ' + supported.media_ready.map(paperLabel).join(', ') + '.' : ''}`);
 };
 C.getConfigElement = function () { return document.createElement(TAG + '-editor'); };
 if (!customElements.get(TAG + '-editor')) {
