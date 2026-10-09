@@ -20,8 +20,9 @@
 - Phase 6 released/installed: scan 0.12.0 / print 0.11.0. Durable Latest scan,
   ten-job/seven-day print activity, shared core v4 and automatic standalone
   Sections height. 610 tests and hosted/release checks pass. HA restart and
-  fresh live cards verified. First post-upgrade job and phone disclosure
-  acceptance are the next checks. [Validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-6-validation.md).
+  fresh live cards verified. HP print 373 / scan 8812dcdc7880 survive refresh
+  and restart with unchanged metadata, expiry and PDF hash. The user confirmed
+  both records and the download on the phone; Phase 6 acceptance is complete. [Validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-6-validation.md).
 
 
 ## Done
