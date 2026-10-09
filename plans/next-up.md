@@ -11,7 +11,8 @@
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
   [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
   [Phase 2 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-2-validation.md).
-- Compatibility implementation for print 0.7.0 / scan 0.8.0 is prepared.
+- Compatibility implementation for print 0.7.0 / scan 0.8.0 is pushed and validated.
+  All six hosted checks pass for print 74878df; local print tests: 206 Python/35 card.
   Typed IPP, format-specific settings, preflight, scoped queue discovery,
   shared Options dialogs and bridge documentation are implemented.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-rollout-2026-10-08.md).
