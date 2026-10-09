@@ -100,6 +100,7 @@ async def test_service_retry_refreshes_paper_without_resending(hass, www, printe
         submit.assert_not_called()
         now[0] += 30
         printer_attrs.side_effect = None
+        printer_attrs.return_value = deepcopy(printer_attrs.return_value)
         printer_attrs.return_value.media_default = "iso_a4_210x297mm"
         await hass.services.async_call(DOMAIN, "print_file", options, blocking=True)
         submit.assert_awaited_once()

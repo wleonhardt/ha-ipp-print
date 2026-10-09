@@ -108,10 +108,14 @@ async def test_recovery_does_not_bypass_validation_or_resend_print(
         printer_attrs.side_effect = None
         now[0] += 30
         if outcome == "unsupported":
+            # Keep the previously cached generic capabilities unchanged; the
+            # unsupported result must arrive through the recovered format read.
+            printer_attrs.return_value = deepcopy(printer_attrs.return_value)
             printer_attrs.return_value.formats = ["application/pdf"]
         elif outcome == "invalid_settings":
             validation_result.side_effect = IppStatusError("settings rejected", 0x040B)
         response = await http.post("/api/ipp_print/print", data=jpeg_form())
+        assert printer_attrs.await_count == 3  # setup, failed lookup, recovered lookup
         assert response.status == {"timeout": 502, "unsupported": 415, "invalid_settings": 400}[outcome]
         body = await response.json()
         assert body["job_may_exist"] is (outcome == "timeout")
