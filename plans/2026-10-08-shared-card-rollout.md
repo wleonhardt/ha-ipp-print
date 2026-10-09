@@ -1,6 +1,6 @@
 # Shared scan and print card rollout
 
-Status: Phases 0–6 complete, 2026-10-09. Current pair is print 0.11.1 /
+Status: Phases 0–6 complete, 2026-10-09. Current pair is print 0.11.2 /
 scan 0.12.1. Native cards, durable activity, HP refresh/restart/download and
 physical phone acceptance passed. The user-requested main dashboard migration
 is complete, with status tiles and navigation preserved. Available-HP discovery

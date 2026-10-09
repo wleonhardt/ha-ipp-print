@@ -1,6 +1,8 @@
 # JPEG settings failure diagnostics
 
-Status: implemented for 0.11.2; validation and delivery in progress.
+Status: released, installed and verified as 0.11.2 on HA 2026.9.4.
+The original intermittent JPEG failure remains unexplained; its diagnostic gap
+is reproduced and fixed. No new failure was induced on the real HP.
 
 The user approved improving evidence for the intermittent JPEG failure, with no
 new settings or dependencies. The original failure's cause is still unknown;
@@ -40,4 +42,28 @@ submission, retained evidence, typed IPP rejection, timeout/TLS/auth/HTTP/invali
 data/connection categories, cancellation, per-printer isolation, cache bounds,
 redaction and reload. All required local checks pass: 251 Python tests, 65 card
 tests after npm ci, Ruff, compileall and diff checks (316 tests total).
-Hosted validation, release and installed read-only verification follow.
+
+## Delivery and live verification
+
+- Commit `e3585fe`: all six [hosted checks](https://github.com/wleonhardt/ha-ipp-print/actions/runs/37992616238)
+  passed. The [release workflow](https://github.com/wleonhardt/ha-ipp-print/actions/runs/37992817623)
+  published [v0.11.2](https://github.com/wleonhardt/ha-ipp-print/releases/tag/v0.11.2).
+- Rollback archive:
+  `/config/.document-card-backups/before-jpeg-diagnostics-v0112-20261009.tar.gz`.
+  Installed tracked release sources, passed HA configuration check and restarted
+  with both job sensors idle. All four changed Python modules, manifest and
+  unchanged card hashes match the release. Scan remains 0.12.1.
+- The real authenticated diagnostic download reports Print 0.11.2, a loaded
+  entry, reachable HP and a fresh generic capability cache. Format caches start
+  empty, and there is no invented failure or blocked submission record.
+- One read-only JPEG capability request succeeds and adds its fresh format cache
+  to diagnostics. Two subsequent diagnostic downloads preserve both its attempt
+  and success timestamps. No Validate-Job or Print-Job was submitted by this check.
+- Both native features render on the main dashboard. Both job sensors remain
+  idle. The existing print activity and latest scan metadata are unchanged after
+  restart; the old scan is correctly expired at its original deadline.
+
+Failure categories and recovery are verified with isolated tests, not claimed
+as reproduced HP failures. If the intermittent problem returns, download
+diagnostics before reloading/restarting; do not infer its cause from this
+successful read-only query or add speculative retry behavior.

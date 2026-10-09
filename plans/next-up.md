@@ -2,9 +2,11 @@
 
 ## Queue
 
-- JPEG settings-failure diagnostics approved and implemented for 0.11.2;
-  validation/release in progress. Bounded in-memory evidence through the existing
-  diagnostic download; no new settings, dependencies or submission retries.
+- JPEG settings-failure diagnostics released/installed as 0.11.2. All 316 Print
+  tests and hosted/release checks pass. Normal diagnostic download and one
+  read-only HP JPEG query verified; cards/activity survive restart. Bounded
+  in-memory evidence through the existing download; no new settings, dependencies
+  or submission retries. Historical failure cause remains unconfirmed.
   [Plan and validation](2026-10-09-jpeg-diagnostics.md).
 
 - Native cards promoted to the main Printer dashboard at the user's request;
