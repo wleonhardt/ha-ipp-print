@@ -274,6 +274,12 @@ duplex when paper size is implicit and picks up changed printer defaults
 automatically. Load paper matching the printer's configured size. If the
 current settings cannot be read, the action fails before submitting a job.
 
+After a timeout, connection failure or HTTP 502/503/504 settings response, a new
+print attempt can retry that lookup once after 30 seconds. A failed early lookup
+returns to the five-minute backoff. The error gives the wait time. This only
+rechecks settings in response to a new print request; it never schedules or
+automatically resends a document.
+
 ```yaml
 automation:
   - alias: Print the scan that just finished
@@ -405,7 +411,10 @@ the integration or restarting HA. Evidence is kept only in memory (one generic
 cache, at most eight format caches and one blocked-attempt snapshot). Normal
 cache eviction can remove a format's record. Diagnostic downloads make no device
 requests, and these records contain no raw error text, addresses, credentials,
-filenames or document bytes. No retry, timeout or submission policy is changed.
+filenames or document bytes. `submit_retry_after_seconds` records the wait for
+an explicit settings retry; ordinary capability reads retain their separate
+five-minute failure backoff. Authentication, TLS, malformed responses and IPP
+rejections do not qualify for the early retry.
 
 Enable debug logging for the wire-level detail:
 

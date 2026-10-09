@@ -67,3 +67,51 @@ Failure categories and recovery are verified with isolated tests, not claimed
 as reproduced HP failures. If the intermittent problem returns, download
 diagnostics before reloading/restarting; do not infer its cause from this
 successful read-only query or add speculative retry behavior.
+
+## Bounded settings recovery follow-up — 2026-10-09
+
+The user subsequently approved testing recovery after a failed settings lookup
+and fixing reproduced issues, with bounded retries, no automatic print resends,
+new settings or dependencies. This changes only the explicit retry policy below;
+the cause of the user's historical JPEG failure remains unknown.
+
+Reproduced with the real HA upload endpoint and mocked printer I/O: after a
+timeout and printer recovery, a new JPEG request 30 seconds later still returned
+502 without contacting the printer. The original five-minute cache backoff also
+applied to deliberate print attempts. Before the fix, the upload recovery test
+and two focused cache regressions failed; nontransient-failure tests passed.
+
+Print 0.11.3 permits one early settings refresh after a 30-second cooldown for
+timeouts, connection errors and HTTP 502/503/504. Only a new per-job `fresh=True`
+request can use it. One failed early attempt starts the normal five-minute
+backoff, without another early attempt in that interval. Cancellation consumes
+the early opportunity. The existing lock serializes access, the 15-second fetch
+limit stays in place, and no background recovery timer or submission loop exists.
+Authentication, TLS, unsupported IPP operations/formats, malformed responses and
+HTTP rate limits retain full backoff. Dashboard GETs retain their existing cache
+policy. An error gives the next retry wait; diagnostics also include that wait.
+
+After successful recovery, ordinary format validation, fresh paper selection and
+Validate-Job still run before the current request submits once. Ambiguous
+Print-Job outcomes still warn that the printer may have accepted the document.
+No replay, scanner runtime change, new API parameter, setting or dependency.
+
+Validation:
+
+- All 270 Python and 65 card tests pass (335 total), plus npm ci, Ruff, compileall
+  and diff whitespace checks. Added coverage includes early/too-soon retries,
+  concurrent failed retries, one-opportunity exhaustion, cancellation, stale
+  data and recovery reset, excluded error classes and preserved diagnostics.
+- HTTP and service recovery both pass. Service recovery uses the newly returned
+  paper default. Read-only dashboard queries cannot consume the early retry.
+  Unsupported formats and rejected settings submit zero jobs. A submission
+  timeout after recovery sends exactly once and remains an ambiguous outcome,
+  including after later read-only requests and diagnostic downloads.
+- In an isolated local cache/client, simulated the initial timeout, verified an
+  immediate retry was suppressed, waited the actual 30-second cooldown, then
+  made one real HP `image/jpeg` capability lookup. It succeeded, the cache became
+  fresh and the earlier failure evidence remained. No Validate-Job or Print-Job
+  was sent. This proves recovery against the real endpoint after a controlled
+  failure; it does not claim the HP naturally timed out or identify the old cause.
+
+Release and installed validation will be recorded after delivery.

@@ -452,9 +452,11 @@ async def _submit(
         info = live["printer_info"] = await format_cache.async_get(fresh=True)
         if format_cache.metadata()["status"] != "fresh" or format_cache.closed:
             record_blocked_format_probe(live, document_format, format_cache)
+            retry_after = format_cache.retry_after_seconds(fresh=True)
+            guidance = f" Try again in {retry_after} seconds." if retry_after else ""
             raise SubmitError(
                 "cannot read the printer's current format and paper settings; "
-                "check its connection. No print job was submitted", 502,
+                f"check its connection. No print job was submitted.{guidance}", 502,
             )
     if cache.closed:
         raise SubmitError("printer integration unloaded; no job submitted", 503)

@@ -8,6 +8,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.ipp_print as integration
+from custom_components.ipp_print import capability_cache as cache_module
 from custom_components.ipp_print.const import DOMAIN
 from custom_components.ipp_print.coordinator import JobCoordinator
 from custom_components.ipp_print.printer import JobSubmissionResult
@@ -83,6 +84,27 @@ async def test_duplex_probe_failure_does_not_submit_stale_media(hass, www, print
                 blocking=True,
             )
     pj.assert_not_called()
+
+
+async def test_service_retry_refreshes_paper_without_resending(hass, www, printer_attrs, monkeypatch):
+    now = [1.0]
+    monkeypatch.setattr(cache_module, "monotonic", lambda: now[0])
+    await _setup(hass)
+    options = {"path": str(www), "sides": "two-sided-long-edge"}
+    printer_attrs.side_effect = TimeoutError()
+    with patch.object(integration.PrinterClient, "print_job",
+                      new=AsyncMock(return_value=OK_RESULT)) as submit, \
+            patch.object(JobCoordinator, "_ensure_poll_loop"):
+        with pytest.raises(HomeAssistantError, match="Try again in 30 seconds"):
+            await hass.services.async_call(DOMAIN, "print_file", options, blocking=True)
+        submit.assert_not_called()
+        now[0] += 30
+        printer_attrs.side_effect = None
+        printer_attrs.return_value.media_default = "iso_a4_210x297mm"
+        await hass.services.async_call(DOMAIN, "print_file", options, blocking=True)
+        submit.assert_awaited_once()
+        assert submit.call_args.kwargs["media"] == "iso_a4_210x297mm"
+        assert printer_attrs.await_count == 3
 
 
 async def test_default_submission_does_not_override_media(hass, www, printer_attrs):

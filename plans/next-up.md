@@ -2,6 +2,13 @@
 
 ## Queue
 
+- Bounded settings recovery implemented for 0.11.3: a new explicit print request
+  may retry a transient lookup once after 30 seconds, then full backoff applies
+  if it fails. No automatic document resend or new settings/dependencies. All
+  335 tests, lint and compilation pass; an isolated controlled failure followed
+  by one real read-only HP JPEG lookup recovers and retains diagnostics.
+  [Recovery scope and validation](2026-10-09-jpeg-diagnostics.md#bounded-settings-recovery-follow-up--2026-10-09).
+
 - JPEG settings-failure diagnostics released/installed as 0.11.2. All 316 Print
   tests and hosted/release checks pass. Normal diagnostic download and one
   read-only HP JPEG query verified; cards/activity survive restart. Bounded

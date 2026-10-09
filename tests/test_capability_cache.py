@@ -1,10 +1,13 @@
-"""Shared cache policy: bounded refresh cost, stale data and unload safety."""
+"""Cache backoff and bounded per-job recovery, stale data and unload safety."""
 import asyncio
+import ssl
 from unittest.mock import AsyncMock
 
+import aiohttp
 import pytest
 
 from custom_components.ipp_print import capability_cache as module
+from custom_components.ipp_print.printer import IppHttpError, IppStatusError
 
 
 @pytest.fixture
@@ -113,3 +116,86 @@ async def test_cancellation_does_not_invent_failure_evidence():
     with pytest.raises(asyncio.CancelledError):
         await cache.async_get(fresh=True)
     assert cache.diagnostic_snapshot()["last_failure"] == previous
+
+
+@pytest.mark.parametrize("error", [
+    TimeoutError(), aiohttp.ServerDisconnectedError(),
+    IppHttpError(502), IppHttpError(503), IppHttpError(504),
+])
+async def test_deliberate_retry_recovers_without_shortening_ordinary_backoff(clock, error):
+    fetch = AsyncMock(side_effect=[error, "recovered"])
+    cache = module.CapabilityCache(fetch)
+    assert await cache.async_get(fresh=True) is None
+    failure = cache.diagnostic_snapshot()["last_failure"]
+    assert cache.metadata()["refresh_after_seconds"] == 300
+    assert cache.retry_after_seconds(fresh=True) == 30
+    clock[0] += 29
+    assert await cache.async_get(fresh=True) is None
+    assert cache.retry_after_seconds(fresh=True) == 1
+    clock[0] += 1
+    assert await cache.async_get() is None  # Dashboard reads cannot trigger it.
+    fetch.assert_awaited_once()
+    assert await cache.async_get(fresh=True) == "recovered"
+    assert fetch.await_count == 2
+    assert cache.metadata()["status"] == "fresh"
+    assert cache.retry_after_seconds(fresh=True) == 0
+    assert cache.diagnostic_snapshot()["last_failure"] == failure
+
+
+async def test_only_one_early_retry_before_full_backoff(clock):
+    fetch = AsyncMock(side_effect=TimeoutError())
+    cache = module.CapabilityCache(fetch)
+    await cache.async_get(fresh=True)
+    clock[0] += 30
+    await asyncio.gather(*(cache.async_get(fresh=True) for _ in range(12)))
+    assert fetch.await_count == 2
+    assert cache.retry_after_seconds(fresh=True) == 300
+    clock[0] += 30
+    await cache.async_get(fresh=True)
+    assert fetch.await_count == 2
+    clock[0] += module.RETRY_SECONDS - 30
+    await cache.async_get(fresh=True)
+    assert fetch.await_count == 3
+
+
+@pytest.mark.parametrize("error", [
+    ssl.SSLError(), IppHttpError(401), IppHttpError(403), IppHttpError(429),
+    IppStatusError("unsupported format", 0x040A), ValueError(), aiohttp.ClientPayloadError(),
+])
+async def test_nontransient_failure_keeps_full_backoff(clock, error):
+    fetch = AsyncMock(side_effect=error)
+    cache = module.CapabilityCache(fetch)
+    await cache.async_get(fresh=True)
+    clock[0] += 30
+    await cache.async_get(fresh=True)
+    fetch.assert_awaited_once()
+    assert cache.retry_after_seconds(fresh=True) == 270
+
+
+async def test_canceled_early_retry_consumes_opportunity_without_rewriting_failure(clock):
+    fetch = AsyncMock(side_effect=[TimeoutError(), asyncio.CancelledError(), "recovered"])
+    cache = module.CapabilityCache(fetch)
+    await cache.async_get(fresh=True)
+    failure = cache.diagnostic_snapshot()["last_failure"]
+    clock[0] += 30
+    with pytest.raises(asyncio.CancelledError):
+        await cache.async_get(fresh=True)
+    assert cache.diagnostic_snapshot()["last_failure"] == failure
+    await cache.async_get(fresh=True)
+    assert fetch.await_count == 2
+    clock[0] += module.RETRY_SECONDS - 30
+    assert await cache.async_get(fresh=True) == "recovered"
+
+
+async def test_early_retry_keeps_stale_data_until_success(clock):
+    fetch = AsyncMock(side_effect=["old", TimeoutError(), "new", TimeoutError(), "latest"])
+    cache = module.CapabilityCache(fetch)
+    assert await cache.async_get() == "old"
+    assert await cache.async_get(fresh=True) == "old"
+    assert cache.metadata()["status"] == "stale"
+    clock[0] += 30
+    assert await cache.async_get(fresh=True) == "new"
+    # A successful recovery resets the budget for a later, independent outage.
+    assert await cache.async_get(fresh=True) == "new"
+    clock[0] += 30
+    assert await cache.async_get(fresh=True) == "latest"

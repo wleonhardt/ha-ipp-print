@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.11.3] - 2026-10-09
+
+### Fixed
+- After a temporary format/paper settings lookup failure, a new print attempt
+  can make one early settings check after 30 seconds. If that check fails too,
+  the full five-minute backoff resumes. Dashboard reads keep normal backoff;
+  authentication, TLS, malformed-data and IPP rejection errors are not fast-tracked.
+- Failed settings reads explain how long to wait before trying again. Diagnostics
+  retain failure evidence through recovery and expose the next permitted submission lookup.
+  No print job is automatically retried, and no new setting or dependency is added.
+
 ## [0.11.2] - 2026-10-09
 
 ### Added

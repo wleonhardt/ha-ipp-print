@@ -8,6 +8,7 @@ import aiohttp
 import pytest
 
 import custom_components.ipp_print as integration
+from custom_components.ipp_print import capability_cache as cache_module
 from custom_components.ipp_print.capability_cache import CapabilityCache
 from custom_components.ipp_print.diagnostics import async_get_config_entry_diagnostics
 from custom_components.ipp_print.coordinator import JobCoordinator
@@ -26,17 +27,20 @@ def jpeg_form():
 
 
 async def test_jpeg_failure_survives_backoff_and_successful_retry(
-    hass, hass_client, printer_attrs, validation_result,
+    hass, hass_client, printer_attrs, validation_result, monkeypatch,
 ):
+    now = [1.0]
+    monkeypatch.setattr(cache_module, "monotonic", lambda: now[0])
     entry = await _setup(hass)
-    live = hass.data["ipp_print"][entry.entry_id]
     http = await hass_client()
     printer_attrs.side_effect = TimeoutError("secret at https://user:pass@192.0.2.1/private")
     with patch.object(integration.PrinterClient, "print_job",
                       new=AsyncMock(return_value=OK_RESULT)) as submit:
         response = await http.post("/api/ipp_print/print", data=jpeg_form())
         assert response.status == 502
-        assert (await response.json())["job_may_exist"] is False
+        body = await response.json()
+        assert body["job_may_exist"] is False
+        assert "Try again in 30 seconds" in body["message"]
         diag = await async_get_config_entry_diagnostics(hass, entry)
         blocked = deepcopy(diag["last_blocked_submission"])
         assert blocked["stage"] == "format_capabilities"
@@ -47,6 +51,7 @@ async def test_jpeg_failure_survives_backoff_and_successful_retry(
         assert failure["at"] and failure["duration_ms"] >= 0
         assert blocked["probe"]["status"] == "unknown"
         assert blocked["probe"]["refresh_failed"] is True
+        assert blocked["probe"]["submit_retry_after_seconds"] == 30
 
         # Another attempt during backoff uses the same failure, not another query.
         response = await http.post("/api/ipp_print/print", data=jpeg_form())
@@ -59,7 +64,14 @@ async def test_jpeg_failure_survives_backoff_and_successful_retry(
         assert blocked["probe"]["last_failure"] == failure
 
         printer_attrs.side_effect = None
-        live["format_caches"]["image/jpeg"]._retry_at = 0
+        # The printer has recovered. A deliberate retry after a short cooldown
+        # must not stay blocked for the full five-minute background backoff.
+        now[0] += 30
+        # Read-only dashboard refreshes still observe the original backoff.
+        response = await http.get("/api/ipp_print/capabilities?document_format=image%2Fjpeg")
+        assert response.status == 200
+        assert printer_attrs.await_count == 2
+        submit.assert_not_called()
         with patch.object(JobCoordinator, "_ensure_poll_loop"):
             response = await http.post("/api/ipp_print/print", data=jpeg_form())
         assert response.status == 200
@@ -69,6 +81,7 @@ async def test_jpeg_failure_survives_backoff_and_successful_retry(
         jpeg = diag["capability_queries"]["formats"][0]
         assert jpeg["document_format"] == "image/jpeg"
         assert jpeg["status"] == "fresh" and not jpeg["refresh_failed"]
+        assert jpeg["submit_retry_after_seconds"] == 0
         assert jpeg["last_failure"] == failure
         assert diag["capability_queries"]["generic"]["status"] == "fresh"
         assert diag["connection"]["state"] == "reachable"
@@ -76,6 +89,40 @@ async def test_jpeg_failure_survives_backoff_and_successful_retry(
         text = json.dumps(diag)
         for private in ("secret", "192.0.2.1", "user:pass", "private-photo", "private document"):
             assert private not in text
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "unsupported", "invalid_settings"])
+async def test_recovery_does_not_bypass_validation_or_resend_print(
+    hass, hass_client, printer_attrs, validation_result, monkeypatch, outcome,
+):
+    now = [1.0]
+    monkeypatch.setattr(cache_module, "monotonic", lambda: now[0])
+    entry = await _setup(hass)
+    http = await hass_client()
+    printer_attrs.side_effect = TimeoutError()
+    with patch.object(integration.PrinterClient, "print_job",
+                      new=AsyncMock(side_effect=TimeoutError())) as submit:
+        response = await http.post("/api/ipp_print/print", data=jpeg_form())
+        assert response.status == 502
+        submit.assert_not_called()
+        printer_attrs.side_effect = None
+        now[0] += 30
+        if outcome == "unsupported":
+            printer_attrs.return_value.formats = ["application/pdf"]
+        elif outcome == "invalid_settings":
+            validation_result.side_effect = IppStatusError("settings rejected", 0x040B)
+        response = await http.post("/api/ipp_print/print", data=jpeg_form())
+        assert response.status == {"timeout": 502, "unsupported": 415, "invalid_settings": 400}[outcome]
+        body = await response.json()
+        assert body["job_may_exist"] is (outcome == "timeout")
+        if outcome == "timeout":
+            assert "check its queue before retrying" in body["message"]
+        now[0] += 600
+        await hass.async_block_till_done()
+        await http.get("/api/ipp_print/capabilities?document_format=image%2Fjpeg")
+        await async_get_config_entry_diagnostics(hass, entry)
+        assert submit.await_count == (1 if outcome == "timeout" else 0)
+        assert validation_result.await_count == (0 if outcome == "unsupported" else 1)
 
 
 @pytest.mark.parametrize("exception,expected", [
