@@ -135,7 +135,7 @@ async def test_print_refuses_format_printer_lacks(hass, hass_client, printer_att
         client = await hass_client()
         resp = await client.post("/api/ipp_print/print", data=_form(jpeg, filename="a.jpg"))
         assert resp.status == 415
-        assert "does not accept image/jpeg" in (await resp.json())["message"]
+        assert "contains JPEG data" in (await resp.json())["message"]
         pj.assert_not_called()
 
 

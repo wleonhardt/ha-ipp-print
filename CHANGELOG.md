@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.10.2] - 2026-10-09
+
+### Fixed
+- A known unsupported document format is rejected before querying its paper
+  settings. Printers that reject that query (including the HP M283fdw for PNG)
+  no longer produce a misleading connection error when the card sends defaults.
+- The error names the detected content format and supported PDF/JPEG/PNG
+  alternatives, and explains that renaming a file does not convert it. Upload
+  contents remain authoritative even when the name or browser MIME type differs.
+- Stale generic format data cannot override a successful fresh format probe.
+
 ## [0.10.1] - 2026-10-09
 
 ### Fixed

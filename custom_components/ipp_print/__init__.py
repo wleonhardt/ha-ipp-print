@@ -57,7 +57,7 @@ from .capability_cache import CapabilityCache
 from .capabilities import capability_snapshot, validate_copies
 from .connection import DeviceConnection
 from .coordinator import JobCoordinator
-from .printer import SIDES, IppError, IppHttpError, PrinterClient, media_dimensions
+from .printer import SIDES, IppError, IppHttpError, PrinterClient, PrinterInfo, media_dimensions
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -375,6 +375,24 @@ async def _format_cache(live: dict, document_format: str) -> CapabilityCache:
     return cache
 
 
+def _check_document_format(info: PrinterInfo | None, document_format: str) -> None:
+    """Explain a known format mismatch using the detected bytes, not the filename."""
+    if info is None or not info.formats or info.supports_format(document_format):
+        return
+    names = {"application/pdf": "PDF", "image/jpeg": "JPEG", "image/png": "PNG"}
+    name = names.get(document_format, document_format)
+    alternatives = [label for mime, label in names.items() if info.supports_format(mime)]
+    guidance = (
+        f"Export or convert it to {' or '.join(alternatives)}. "
+        if alternatives else "Use a format supported by this printer. "
+    )
+    raise SubmitError(
+        f"The file contains {name} data, which this printer does not accept. "
+        f"{guidance}Renaming the file does not change its format. "
+        "No print job was submitted", 415,
+    )
+
+
 async def _submit(
     live: dict,
     *,
@@ -409,6 +427,11 @@ async def _submit(
     info = live["printer_info"] = await cache.async_get()
     if cache.closed:
         raise SubmitError("printer integration unloaded; no job submitted", 503)
+    # Unsupported formats may make Get-Printer-Attributes return 0x040a.
+    # Reject known mismatches first so that refusal is not mislabeled as an
+    # unreachable printer. Stale/unknown base data must not veto a fresh probe.
+    if cache.metadata()["status"] == "fresh":
+        _check_document_format(info, document_format)
     explicit = copies is not None or sides is not None or media or media_source or color_mode or quality is not None
     if explicit:
         format_cache = await _format_cache(live, document_format)
@@ -420,12 +443,7 @@ async def _submit(
             )
     if cache.closed:
         raise SubmitError("printer integration unloaded; no job submitted", 503)
-    if info is not None and info.formats and not info.supports_format(document_format):
-        raise SubmitError(
-            f"printer does not accept {document_format} "
-            f"(supported: {', '.join(info.formats)})",
-            415,
-        )
+    _check_document_format(info, document_format)
     if sides and info is not None and info.sides and sides not in info.sides:
         raise SubmitError(
             f"printer does not support sides={sides} "

@@ -374,7 +374,7 @@ through this integration can be cancelled (unknown ids return 404).
 | Job shows `aborted` with `printer-unreachable` | Printer stopped answering mid-job (power, Wi-Fi). Tracking gives up after ~10 failed polls. |
 | Card stuck on "Submitted" | Sensor renamed? Set `entity:` on the card. |
 | Card says `several printers configured; set entity:` | More than one printer is set up. Add `entity:` with that printer's job sensor. |
-| `printer does not accept image/png (supported: …)` | Checked against the printer's advertised formats. Convert, or pass `document_format: application/octet-stream` via the action if the printer auto-senses. |
+| `The file contains PNG data, which this printer does not accept` | File contents determine the format, even if the name ends in `.jpg`. Export or convert to a format listed in the message (for example PDF or JPEG); renaming alone does not convert it. No job is submitted. |
 | `printer refused job (ipp_status=0x040a)` | `client-error-document-format-not-supported` — printer does not accept that format natively. |
 | Printer not discovered | It must advertise `_ipp._tcp`/`_ipps._tcp` on the same L2 network as HA. Add it manually otherwise. |
 
@@ -437,8 +437,8 @@ card. Changing the parent device clears local staged content.
 The [Mushroom example](examples/dashboard-mushroom.yaml) uses the current
 Template card, not Legacy Template. No Mushroom dependency is required for Tile
 or standalone cards. See the [paired native Sections example](https://github.com/wleonhardt/ha-escl-scan/blob/main/examples/dashboard-native-sections.yaml).
-Native examples are opt-in while physical Android acceptance is completed;
-existing dashboards are never migrated automatically. Host verification and
+Native Tile features are the recommended starting point for new dashboards.
+Existing standalone cards remain supported; dashboards are never migrated automatically. Host verification and
 limits are recorded in the [Phase 5 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-5-validation.md).
 
 ## Development

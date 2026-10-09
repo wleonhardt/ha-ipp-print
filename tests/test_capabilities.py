@@ -148,3 +148,57 @@ async def test_advertised_copy_limit_and_failed_sides_probe_block_upload(
             assert "No print job was submitted" in (await response.json())["message"]
     submit.assert_not_called()
     assert printer_attrs.await_count == 3  # setup, format-specific copies, failed paper read
+
+
+@pytest.mark.parametrize("options", [[], [("copies", "1"), ("sides", "one-sided")]])
+async def test_png_named_jpeg_reports_unsupported_format_before_failed_profile_probe(
+    hass, hass_client, printer_attrs, validation_result, options,
+):
+    printer_attrs.return_value.formats = ["application/pdf", "image/jpeg", "application/octet-stream"]
+    await _setup(hass)
+    # This HP rejects a PNG-scoped query. It must never be reached when the
+    # fresh generic response already excludes PNG, even with card defaults.
+    printer_attrs.side_effect = OSError("format probe failed")
+    payload = aiohttp.FormData()
+    for key, value in options:
+        payload.add_field(key, value)
+    payload.add_field("file", b"\x89PNG\r\n\x1a\n" + b"\x00" * 16,
+                      filename="photo.jpg", content_type="image/jpeg")
+    http = await hass_client()
+    with patch.object(integration.PrinterClient, "print_job", new=AsyncMock()) as submit:
+        response = await http.post("/api/ipp_print/print", data=payload)
+    body = await response.json()
+    assert response.status == 415
+    assert body["job_may_exist"] is False
+    assert "contains PNG data" in body["message"]
+    assert "PDF or JPEG" in body["message"]
+    assert "Renaming" in body["message"]
+    assert "No print job was submitted" in body["message"]
+    assert "connection" not in body["message"]
+    assert printer_attrs.await_count == 1
+    validation_result.assert_not_called()
+    submit.assert_not_called()
+
+
+async def test_stale_generic_format_list_does_not_veto_fresh_format_support(
+    hass, hass_client, printer_attrs,
+):
+    from copy import deepcopy
+
+    entry = await _setup(hass)
+    live = hass.data["ipp_print"][entry.entry_id]
+    fresh = deepcopy(printer_attrs.return_value)
+    live["capability_cache"].value.formats = ["image/jpeg"]
+    live["capability_cache"]._expires_at = 0
+    printer_attrs.side_effect = [OSError("temporary generic probe failure"), fresh]
+    http = await hass_client()
+    with patch.object(integration.PrinterClient, "print_job",
+                      new=AsyncMock(return_value=OK_RESULT)) as submit, \
+            patch.object(JobCoordinator, "_ensure_poll_loop"):
+        response = await http.post("/api/ipp_print/print", data=form([
+            ("copies", "1"), ("file", PDF),
+        ]))
+    assert response.status == 200
+    submit.assert_awaited_once()
+    assert submit.call_args.kwargs["document_format"] == "application/pdf"
+    assert printer_attrs.await_count == 3
