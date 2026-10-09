@@ -1,0 +1,45 @@
+name: Device compatibility report
+description: Report a tested printer or queue, including successful setups.
+labels: [compatibility]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Make, model and firmware
+      description: Use the model and firmware version, not a serial number or network address.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Integration and Home Assistant versions
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Connection route
+      options:
+        - Direct network IPP/IPPS
+        - CUPS or Printer Application
+        - ipp-usb
+        - Another bridge or proxy (describe below)
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Discovery and connection
+      description: Automatic discovery or manual setup? HTTP or HTTPS, port, TLS verification and legacy cipher setting; include bridge version when applicable. Omit addresses, credentials and private queue names.
+  - type: textarea
+    id: results
+    attributes:
+      label: What was actually tested?
+      description: Report pass, fail or not tested for PDF/JPEG/PNG, copies, both duplex bindings, paper/tray, color/quality, cancel and reconnect. Separate capability discovery or Validate-Job from completed physical output. For failures include the exact steps and message.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics and evidence
+      description: Attach the integration's Download diagnostics output from Settings → Devices & Services. Review before sharing; raw XML, logs and uploaded documents may contain private information. No document sample is required.

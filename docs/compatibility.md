@@ -72,17 +72,28 @@ proxy, DNS-SD, persisted port allocation and loopback/default interface policy.
 
 ## Evidence, not blanket support claims
 
-| Target | Evidence available on 2026-10-08 | Remaining check |
+| Target | Evidence available on 2026-10-09 | Remaining check |
 |---|---|---|
-| HP Color LaserJet MFP M283fdw | Earlier physical glass/ADF/manual-duplex PDF tests; current read-only profile, PDF settings and Validate-Job checks | Physical run with this release; earlier four-sheet print confirmation |
+| HP Color LaserJet MFP M283fdw | Physical glass/ADF/manual duplex, print copies/both bindings, offline recovery and retained-result restart tests; live DNS-SD and isolated confirmation/duplicate checks | Automatic duplex scanning is not available on this model |
 | Local CUPS queue to that HP | Current client queried PDF settings and passed Validate-Job; typed collections parsed | Actual conversion/output through that queue |
 | Brother family / Xerox B205-B215 / Ricoh matched models | Scoped recovery policies from sane-airscan source; synthetic retry/delay/cancel regressions | Device captures and physical hardware tests |
 | JPEG/PNG-only eSCL profiles | Synthetic acquisition, dimension, malformed/oversize, cancellation and duplex-order tests | A physical image-only scanner |
 | AirSane / ipp-usb | Documented route and manual endpoint support | Bridge/device instance not available for live testing |
 | Automatic-duplex ADF | Existing simulation and capability selection tests | A scanner that physically scans both sides automatically |
 
-No printer or scanner was started during this compatibility implementation's
-live probes. Parser fixtures distinguish real redacted captures from synthetic data.
+Discovery follow-up used live HP advertisements and read-only endpoint probes
+in an isolated HA flow registry. HTTP eSCL on port 8080 and IPP on port 631 work
+with defaults. HTTPS eSCL on 443 and IPPS on 631 need explicit **Allow legacy
+cipher suites** on this HP. Confirmation retains failures and never switches TLS
+off or enables legacy ciphers automatically. Existing production entries were
+untouched; no job was submitted during these discovery checks. Full integration
+initialization was stubbed in the isolated flow check, separately from the earlier
+production setup and physical jobs.
+
+Parser fixtures distinguish real redacted captures from synthetic data. Use the
+[device compatibility report](../.github/ISSUE_TEMPLATE/device_compatibility.yml)
+for successful devices as well as failures. A report does not establish support
+for other models or firmware.
 
 ## Reporting a failure
 

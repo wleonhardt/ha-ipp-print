@@ -615,6 +615,36 @@ async function optionsHost(win, card) {
   return host;
 }
 
+
+// card-mod 4.2.1 wraps every show-dialog host with Lit-style update hooks.
+// Exercise that wrapper contract without taking over our native dialog surface.
+test('Options survives card-mod update hooks and still closes through HA', async () => {
+  const win = boot(), card = mount(win);
+  const Host = win.customElements.get(TAG + '-options-dialog');
+  const original = Host.prototype.showDialog;
+  Host.prototype.showDialog = async function (params) {
+    await original.call(this, params);
+    this.requestUpdate();
+    await this.updateComplete;
+    assert.equal(this.shadowRoot.querySelector('ha-dialog, ha-md-dialog, ha-wa-dialog, ha-drawer'), null);
+  };
+  const host = win.document.createElement(TAG + '-options-dialog');
+  win.document.body.append(host);
+  card._toggleOptions(true);
+  await host.showDialog({ card });
+  assert.equal(card._optionsPanel.open, true);
+  assert.equal(card._optionsPanel.getRootNode(), card.shadowRoot);
+  let closed = 0;
+  host.addEventListener('dialog-closed', () => closed++);
+  host.closeDialog(); host.closeDialog();
+  assert.equal(closed, 1);
+  assert.equal(card._optionsPanel.hidden, true);
+  assert.equal(card.shadowRoot.activeElement, card._optionsButton);
+  await host.showDialog(null);
+  assert.equal(host._card, null);
+  assert.equal(card._optionsOpen, false);
+});
+
 test('HA Back closes Options once and preserves selections for the next opening', async () => {
   const win = boot(), card = mount(win);
   const host = await optionsHost(win, card);

@@ -79,7 +79,10 @@ Or: HACS → search **IPP Print** → Download → restart Home Assistant.
 
 Printers advertising `_ipp._tcp` / `_ipps._tcp` appear under
 **Settings → Devices & Services → Discovered**; confirm and you're done
-(host, port, path, and TLS are taken from the advertisement).
+(host, port, path, and TLS are taken from the advertisement). Confirmation checks
+the connection first. Secure discovery offers **Allow legacy cipher suites** for
+older devices that fail the TLS handshake; it is off by default and never enabled
+automatically. Use manual setup if the printer requires credentials.
 
 Manual: **Settings → Devices & Services → Add Integration → IPP Print**
 

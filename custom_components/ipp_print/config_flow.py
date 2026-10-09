@@ -228,6 +228,11 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
         assert self._discovered is not None
         errors: dict[str, str] = {}
         if user_input is not None:
+            if self._discovered[CONF_USE_TLS]:
+                self._discovered = {
+                    **self._discovered,
+                    CONF_RELAXED_CIPHERS: user_input.get(CONF_RELAXED_CIPHERS, False),
+                }
             try:
                 info = await _probe(self._discovered)
             except Exception as exc:
@@ -250,6 +255,10 @@ class IppPrintConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
         return self.async_show_form(
             step_id="zeroconf_confirm",
+            data_schema=vol.Schema({
+                vol.Optional(CONF_RELAXED_CIPHERS,
+                             default=self._discovered[CONF_RELAXED_CIPHERS]): bool,
+            } if self._discovered[CONF_USE_TLS] else {}),
             errors=errors,
             description_placeholders={
                 "name": self._discovered_name,

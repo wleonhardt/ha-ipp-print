@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.11.1] - 2026-10-09
+
+### Fixed
+- Offer **Allow legacy cipher suites** during secure discovery confirmation,
+  so older HP endpoints can be configured explicitly without automatic fallback.
+- Keep Options compatible with card-mod’s dialog update hooks while preserving
+  the native panel, browser Back and focus return.
+
 ## [0.11.0] - 2026-10-09
 
 ### Added

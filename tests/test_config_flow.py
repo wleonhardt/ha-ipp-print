@@ -264,3 +264,33 @@ async def test_same_uuid_different_queue_is_not_merged(hass):
         DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
         data=_zc(uuid="queue-uuid", rp="printers/second"))
     assert result["type"] is FlowResultType.FORM
+
+
+async def test_discovery_legacy_ciphers_require_explicit_opt_in(hass):
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF}, data=_zc(),
+    )
+    assert result["data_schema"]({}) == {"relaxed_ciphers": False}
+    with patch("custom_components.ipp_print.config_flow._probe",
+               new=AsyncMock(side_effect=[OSError("TLS handshake failure"), DEFAULT_PRINTER_INFO])) as probe:
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+        assert result["errors"] == {"base": "cannot_connect"}
+        assert not hass.config_entries.async_entries(DOMAIN)
+        assert probe.call_args.args[0]["relaxed_ciphers"] is False
+        assert probe.call_args.args[0]["use_tls"] is True
+        with patch("custom_components.ipp_print.async_setup_entry", return_value=True):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"relaxed_ciphers": True}
+            )
+        assert probe.call_args.args[0]["relaxed_ciphers"] is True
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["relaxed_ciphers"] is True
+    assert result["data"]["use_tls"] is True
+
+
+async def test_plain_discovery_does_not_offer_tls_cipher_option(hass):
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_ZEROCONF},
+        data=_zc("_ipp._tcp.local.", port=631),
+    )
+    assert result["data_schema"]({}) == {}

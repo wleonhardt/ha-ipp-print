@@ -26,7 +26,13 @@
       },
       "zeroconf_confirm": {
         "title": "Discovered IPP printer",
-        "description": "Add **{name}** at {host} to Home Assistant? Uses anonymous IPP without certificate verification; adjust later under Configure."
+        "description": "Add **{name}** at {host} to Home Assistant? Uses anonymous IPP without certificate verification; adjust later under Configure.",
+        "data": {
+          "relaxed_ciphers": "Allow legacy cipher suites"
+        },
+        "data_description": {
+          "relaxed_ciphers": "For older devices that fail the secure connection check, including some HP LaserJets. Enables older cipher suites for this device; TLS stays enabled. Leave off unless needed."
+        }
       }
     },
     "error": {

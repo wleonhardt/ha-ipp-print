@@ -40,5 +40,6 @@ body:
     id: logs
     attributes:
       label: Log excerpt
-      description: With `custom_components.ipp_print: debug` in `logger:` if possible.
+      description: >-
+        With `custom_components.ipp_print: debug` in `logger:` if possible.
       render: text

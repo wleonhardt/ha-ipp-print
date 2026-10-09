@@ -1,4 +1,4 @@
-// BEGIN DOCUMENT CARD CORE v4
+// BEGIN DOCUMENT CARD CORE v5
 // Canonical source: ha-escl-scan/shared/card-core.js; synchronize with tools/sync-card-core.mjs.
 // Shared localization contract v1. Keep this helper identical in both cards.
 // Catalogs are bundled here: no build step, translation fetch or registration wait.
@@ -197,6 +197,14 @@ function addOptionField(panel, key, label, type = 'select') {
 const OPTIONS_TAG = `${TAG}-options-dialog`;
 if (!customElements.get(OPTIONS_TAG)) {
   customElements.define(OPTIONS_TAG, class extends HTMLElement {
+    constructor() {
+      super();
+      // This routing host renders synchronously; the card owns the visible panel.
+      // card-mod inspects dialog hosts through these optional Lit-style hooks.
+      this.attachShadow({ mode: 'open' });
+      this.updateComplete = Promise.resolve(true);
+    }
+    requestUpdate() { return this.updateComplete; }
     showDialog(params) {
       this._open = true;
       const card = params?.card;
@@ -588,4 +596,4 @@ function registerDocumentFeature() {
   }
   preserveDocumentElements();
 }
-// END DOCUMENT CARD CORE v4
+// END DOCUMENT CARD CORE v5
