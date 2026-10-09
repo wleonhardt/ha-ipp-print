@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.10.1] - 2026-10-09
+
+### Fixed
+- Intermittent native Tile/Mushroom “Configuration error” on a fresh dashboard
+  load when a late scoped custom-element polyfill replaces the browser registry.
+  Restore missing registrations for the card, feature, editors and Options
+  dialog while preserving existing constructors, selected settings and files.
+  Recovery uses load/navigation events without continuous polling or DOM scans.
+
 ## [0.10.0] - 2026-10-09
 
 ### Added

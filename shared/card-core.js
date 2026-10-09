@@ -296,6 +296,37 @@ function supportsDocumentFeature(hass, context) {
     && attrs.options.includes(FEATURE_DOMAIN === 'escl_scan' ? 'awaiting-back-sides' : 'pending-held');
 }
 
+function preserveDocumentElements() {
+  // A late scoped-registry polyfill can replace window.customElements after
+  // this module has run. Native elements still exist, but HA's new registry
+  // cannot find them. Keep the original constructors (and mounted workflows).
+  const key = Symbol.for(TAG + '.element-registration');
+  const tags = [TAG, FEATURE_TAG, TAG + '-editor', FEATURE_TAG + '-editor', OPTIONS_TAG];
+  const definitions = tags.map(tag => [tag, customElements.get(tag)]);
+  if (window[key]) {
+    window[key].definitions = definitions;
+    window[key].restore();
+    return;
+  }
+  const state = { registry: customElements, definitions };
+  state.restore = () => {
+    const registry = window.customElements;
+    if (registry === state.registry) return;
+    for (const [tag, constructor] of state.definitions) {
+      if (constructor && !registry.get(tag)) registry.define(tag, constructor);
+    }
+    state.registry = registry;
+  };
+  window[key] = state;
+  // Capture script loads, including resources loaded after a slow first visit.
+  // Normal loads cost only an identity check; no ongoing DOM scan or polling.
+  document.addEventListener('load', state.restore, true);
+  window.addEventListener('load', state.restore);
+  window.addEventListener('pageshow', state.restore);
+  window.addEventListener('location-changed', state.restore);
+  customElements.whenDefined('home-assistant').then(state.restore);
+}
+
 function registerDocumentFeature() {
   const F = customElements.get(FEATURE_TAG);
   F.getStubConfig = () => ({ type: 'custom:' + FEATURE_TAG, duplex: false });
@@ -375,5 +406,6 @@ function registerDocumentFeature() {
   if (!window.customCardFeatures.some(feature => feature.type === FEATURE_TAG)) {
     window.customCardFeatures.push({ type: FEATURE_TAG, name: localize('picker.name'), isSupported: supportsDocumentFeature, configurable: true });
   }
+  preserveDocumentElements();
 }
 // END DOCUMENT CARD CORE v3

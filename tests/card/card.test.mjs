@@ -1107,3 +1107,67 @@ test('native editor excludes host identity even when an older standalone editor 
   assert.equal(editor.localName, FEATURE + '-editor');
   assert.deepEqual(Array.from(editor.querySelector('ha-form').schema, field => field.name), ['duplex']);
 });
+
+
+// A scoped-registry polyfill may load after our module. Its registry can be
+// empty even though the native browser still owns the original constructors.
+function replaceElementRegistry(win, existing = []) {
+  const definitions = new Map(existing), waiting = new Map(), calls = [];
+  const registry = {
+    get: tag => definitions.get(tag),
+    define: (tag, constructor) => {
+      assert.equal(definitions.has(tag), false, 'must not replace an existing definition');
+      definitions.set(tag, constructor); calls.push(tag);
+      waiting.get(tag)?.(constructor);
+    },
+    whenDefined: tag => definitions.has(tag) ? Promise.resolve(definitions.get(tag))
+      : new Promise(resolve => waiting.set(tag, resolve)),
+  };
+  Object.defineProperty(win, 'customElements', { configurable: true, value: registry });
+  return { registry, calls };
+}
+
+test('late registry replacement recovers native features, editors and Options without recreating intent', async () => {
+  const win = boot();
+  const tags = [TAG, FEATURE, TAG + '-editor', FEATURE + '-editor', TAG + '-options-dialog'];
+  const constructors = tags.map(tag => win.customElements.get(tag));
+  const { feature, hass, calls } = featureFixture(win);
+  const workflow = feature._workflow;
+  const staged = new win.File(['PDF'], 'keep-me.pdf', { type: 'application/pdf' });
+  workflow._stageFile(staged);
+  await tick();
+  const replacement = replaceElementRegistry(win);
+  assert.equal(win.customElements.get(FEATURE), undefined);
+  let resolved;
+  replacement.registry.whenDefined(FEATURE).then(value => { resolved = value; });
+  // Script load does not bubble. Recovery must capture the late module's event.
+  const script = win.document.createElement('script'); win.document.body.append(script);
+  script.dispatchEvent(new win.Event('load'));
+  await Promise.resolve();
+  assert.equal(resolved, constructors[1]);
+  tags.forEach((tag, index) => assert.equal(win.customElements.get(tag), constructors[index]));
+  assert.equal(replacement.calls.length, 5);
+  feature.hass = { ...hass }; feature.context = { entity_id: SENSOR };
+  assert.equal(feature._workflow, workflow);
+  assert.equal(workflow._stagedFile, staged);
+  workflow._optionsButton.click();
+  assert.equal(workflow._optionsOpen, true);
+  assert.equal(calls.length, 0);
+  script.dispatchEvent(new win.Event('load'));
+  assert.equal(replacement.calls.length, 5, 'ordinary loads must not re-register');
+});
+
+test('registry recovery preserves already registered versions and handles page restoration', () => {
+  const win = boot();
+  const original = win.customElements.get(FEATURE);
+  class ExistingFeature extends win.HTMLElement {}
+  const replacement = replaceElementRegistry(win, [[FEATURE, ExistingFeature]]);
+  win.dispatchEvent(new win.Event('pageshow'));
+  assert.equal(win.customElements.get(FEATURE), ExistingFeature);
+  assert.equal(replacement.calls.includes(FEATURE), false);
+  assert.equal(replacement.calls.length, 4);
+  const next = replaceElementRegistry(win);
+  win.dispatchEvent(new win.Event('location-changed'));
+  assert.equal(win.customElements.get(FEATURE), original);
+  assert.equal(next.calls.length, 5);
+});
