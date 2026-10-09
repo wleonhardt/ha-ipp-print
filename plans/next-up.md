@@ -17,9 +17,12 @@
   The user confirmed their file was JPEG and a retry went through; the first
   failure remains undiagnosed. The PNG fix is independently verified.
   [Validation](2026-10-09-format-rejection.md).
-- Phase 6 implemented: durable Latest scan and bounded print activity; release
-  and deployment validation in progress.
-  [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
+- Phase 6 released/installed: scan 0.12.0 / print 0.11.0. Durable Latest scan,
+  ten-job/seven-day print activity, shared core v4 and automatic standalone
+  Sections height. 610 tests and hosted/release checks pass. HA restart and
+  fresh live cards verified. First post-upgrade job and phone disclosure
+  acceptance are the next checks. [Validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-6-validation.md).
+
 
 ## Done
 
