@@ -1,7 +1,8 @@
 # Unsupported image format reported as a connection error
 
 Status: released and installed as print 0.10.2; local, hosted and live endpoint
-validation pass. The user's original image still has not been inspected.
+validation pass. The user confirmed their file was JPEG and a retry went through.
+The cause of their first failure remains unconfirmed.
 
 The user confirmed the paired native cards and navigation work on the physical
 phone, then reported a print failure for a file named with a `.jpg` extension.
@@ -10,12 +11,13 @@ The displayed message said current format/paper settings could not be read.
 The HP M283fdw is reachable. Read-only native IPP queries accept JPEG and PDF,
 advertise both, and reject PNG with `client-error-document-format-not-supported`
 (`0x040a`). Its generic format list excludes PNG despite advertising octet-stream
-auto-sensing. HA's JPEG cache was fresh at 14:54:08 UTC; its failed PNG probe was
-at 14:54:10, matching the reported attempt. This suggests PNG content with JPEG
-metadata; the user's original image has not been provided, so that exact file
-has not been inspected.
+auto-sensing. HA's JPEG cache was fresh at 14:54:08 UTC; a failed PNG probe was
+at 14:54:10. An initial hypothesis linked that timing to the user's file, but
+timing alone does not establish its format. The user subsequently confirmed it
+was JPEG. The original file has not been independently inspected, and the PNG
+probe must not be treated as a diagnosis of their failed attempt.
 
-An end-to-end reproduction uploaded a tiny PNG with a `.jpg` filename and
+A separate end-to-end test uploaded a tiny PNG with a `.jpg` filename and
 `image/jpeg` MIME metadata, plus the card's copies=1 and sides=one-sided
 defaults. The installed 0.10.1 endpoint returned the identical 502 connection
 message with `job_may_exist=false`. No device job was submitted. The backend
@@ -48,3 +50,10 @@ offers PDF/JPEG, and reports `job_may_exist=false`; the job sensor stays idle.
 A direct JPEG Validate-Job check with copies=1, one-sided, and the fresh Letter
 default returned success with no warning. Validate-Job contains no document and
 does not submit a print job. This is not a physical print of the user's file.
+
+User follow-up: “it was a jpeg it just went through now after trying again”.
+Record this as a successful JPEG retry reported by the user, without attributing
+it to the PNG patch or claiming independently verified job completion/output.
+A transient settings lookup failure is possible but unconfirmed. If it recurs,
+capture the failed capability request and error category before assigning a
+cause; conversion is not indicated by this report.

@@ -8,7 +8,9 @@
 - Print 0.10.2 is released/installed: unsupported PNG now gets format guidance
   instead of a connection error. 220 Python / 62 card tests and hosted checks
   pass; the live rejection and JPEG Validate-Job checks pass without printing.
-  The original user image has not been inspected. [Validation](2026-10-09-format-rejection.md).
+  The user confirmed their file was JPEG and a retry went through; the first
+  failure remains undiagnosed. The PNG fix is independently verified.
+  [Validation](2026-10-09-format-rejection.md).
 - Next planned phase: durable Latest scan/recent activity; not started.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
 
