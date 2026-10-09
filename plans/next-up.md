@@ -17,7 +17,13 @@
   shared Options dialogs and bridge documentation are implemented.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-rollout-2026-10-08.md).
   [Validation and remaining physical gates](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-validation-2026-10-08.md).
-  Installed pair remains print 0.6.1 / scan 0.7.1 until the installation gate.
+  Installed pair: print 0.7.0 / scan 0.8.1. Live card job 368 with explicit
+  Letter/automatic tray/monochrome/normal/long-edge duplex completed. User
+  confirmed correct one-sheet front/back output; filename cleared. HP requested
+  paper-size confirmation on its screen. Scan Letter/grayscale/300 DPI and
+  download also pass. Color duplex job 369 printed two numbered sheets; manual
+  scanning returned 1F,1B,2F,2B upright with matching downloads. Release tags remain.
+  User confirmed both new Options dialogs fit and work on the phone.
 
 ## Done
 
