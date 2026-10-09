@@ -114,4 +114,21 @@ Validation:
   was sent. This proves recovery against the real endpoint after a controlled
   failure; it does not claim the HP naturally timed out or identify the old cause.
 
-Release and installed validation will be recorded after delivery.
+Delivery and installed validation:
+
+- Commit `792d1cd`: all six [hosted checks](https://github.com/wleonhardt/ha-ipp-print/actions/runs/38002398900)
+  pass. The [release workflow](https://github.com/wleonhardt/ha-ipp-print/actions/runs/38002563015)
+  published [v0.11.3](https://github.com/wleonhardt/ha-ipp-print/releases/tag/v0.11.3).
+- Rollback archive:
+  `/config/.document-card-backups/before-settings-recovery-v0113-20261009.tar.gz`.
+  Installed tracked release files; hashes of both changed Python modules,
+  manifest and unchanged card match. HA configuration check passed and both
+  sensors were idle immediately before the core restart.
+- HA remains 2026.9.4. Both entries return loaded and the HP is reachable. The
+  authenticated diagnostic download returns 200 with manifest 0.11.3 and the new
+  retry field, confirming the running code loaded. One normal read-only JPEG
+  capability query returns fresh data; its diagnostic retry wait is zero.
+- Both native features render on the main dashboard. Latest scan and recent
+  print activity metadata match the pre-restart snapshot exactly, including
+  the scan's existing expiry. Both job sensors stay idle. No physical print or
+  scan, Validate-Job, automatic resend or synthetic production fault was sent.
