@@ -1,0 +1,16 @@
+# Add each card to the dashboard's card list.
+- type: custom:escl-scan-card
+  title: Scan
+  source: auto
+  color: gray
+  dpi: 300
+  page_size: letter
+  duplex: false
+  duplex_in_options: false
+- type: custom:ipp-print-upload-card
+  title: Print
+  copies: 1
+  duplex: false
+  binding: two-sided-long-edge
+  duplex_in_options: false
+  # entity: sensor.office_current_job

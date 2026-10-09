@@ -7,16 +7,16 @@
   Physical phone loading confirmed. Phase 2 upload copies/sides and capabilities
   implemented and installed as print v0.6.0 / scan v0.7.0, with subsequent
   card fixes print v0.6.1 / scan v0.7.1. Live API and print jobs pass; physical four-sheet confirmation and release tags pending.
-  Next implementation: Phase 3 settings controls.
+  Phase 3 controls implemented in the compatibility rollout; release gate pending.
   [Printer scope and canonical phased plan](2026-10-08-shared-card-rollout.md).
   [Paired validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-1-validation.md).
   [Phase 2 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-2-validation.md).
-- Cross-project compatibility research recommends correcting octet-stream format
-  claims, preserving substitution warnings and improving format-specific settings
-  before expanding Phase 3 controls. Includes typed IPP parsing, media readiness,
-  validation, device fixtures and optional bridge routes. Recommendations only;
-  no runtime changes or new protocol decision accepted.
-  [Research and evidence](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/ipp-escl-compatibility-research-2026-10-08.md).
+- Compatibility implementation for print 0.7.0 / scan 0.8.0 is prepared.
+  Typed IPP, format-specific settings, preflight, scoped queue discovery,
+  shared Options dialogs and bridge documentation are implemented.
+  [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-rollout-2026-10-08.md).
+  [Validation and remaining physical gates](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-validation-2026-10-08.md).
+  Installed pair remains print 0.6.1 / scan 0.7.1 until the installation gate.
 
 ## Done
 

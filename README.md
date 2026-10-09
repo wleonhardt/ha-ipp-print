@@ -110,8 +110,8 @@ entity: sensor.office_current_job      # the printer's job sensor; optional with
 ```
 
 With one printer configured the card finds its sensor by itself. With
-several, add one card per printer and set `entity:` to that printer's job
-sensor — the card uploads to the printer that sensor belongs to.
+several, select a printer in Options or set `entity:` to its job sensor.
+The selected sensor determines the print queue.
 
 Choose a PDF, JPEG or PNG, check its filename, then press **Print**. Selecting a
 file keeps it in your browser until Print is pressed. **Replace** changes the
@@ -128,7 +128,29 @@ text, accessible buttons and sizing. Existing card types and explicit titles
 continue to work. Add each card directly to a Sections grid for native sizing,
 or keep your horizontal stack. See [paired Sections example](examples/dashboard-sections.yaml).
 Copies and duplex are available through the print service and upload API;
-upload-card settings controls are the next phase.
+the same settings are available in the card's Options dialog.
+
+## Print options and compatibility
+
+Open **Options** (the sliders icon) for printer, copies, two-sided binding,
+paper, tray, color and quality. The common dialog keeps narrow dashboard tiles
+compact. Settings follow advertised support for the selected file; changing the
+file or printer revalidates the choices. Unavailable selections require correction.
+
+The card requests **one copy and one-sided** unless changed. Older backends without
+option metadata retain device defaults, with an explanation. Optional card defaults:
+`copies: 1`, `duplex: false`, `binding: two-sided-long-edge`.
+`duplex_in_options: true` places the switch inside Options. The visual editor exposes
+these defaults. Settings lock during submission and printing; editor changes apply
+at the next job.
+
+Explicit settings use Validate-Job before document upload. An explicitly unsupported
+operation falls back to attribute fidelity with a warning; rejected settings submit
+nothing. Accepted substitutions stay visible as warnings. The integration does not
+render printer languages: upload support requires an explicit advertised MIME type.
+
+See the [compatibility and bridge guide](docs/compatibility.md) for optional CUPS,
+Printer Application, AirSane and ipp-usb routes and evidence levels.
 
 ## Sensor + events
 
@@ -230,6 +252,21 @@ automation:
           message: "Sent to printer as job {{ job.job_id }}"
 ```
 
+### Additional service and upload fields
+
+`media` uses a supported paper keyword; `media_source` uses a supported tray keyword.
+`color_mode` uses a supported print-color-mode keyword. `quality` is 3 (draft),
+4 (normal) or 5 (best), when advertised. These fields are optional in both
+`ipp_print.print_file` and multipart `/api/ipp_print/print`. A selected tray and
+paper are encoded in one `media-col` collection and checked together before upload.
+
+The capability endpoint accepts optional `document_format=application/pdf`
+(or `image/jpeg`, `image/png`). Schema 1 adds media, ready paper, trays, color modes,
+qualities, defaults and the queried format. Routine requests intentionally avoid
+`media-col-database`, which can be enormous on otherwise working printers.
+A submit failure includes `job_may_exist`: false confirms a rejection before any
+possible accepted job; true means the user must check the queue before retrying.
+
 ## REST API
 
 The integration registers two HA HTTP views (both require a Home Assistant
@@ -272,7 +309,8 @@ The target is optional with one loaded printer, required with several.
 Returns `schema_version: 1`, the resolved sensor, bounded identity,
 `supported.formats`, `supported.sides`, `supported.copies_max`,
 `request_options` and integration `limits`. Supported formats are restricted
-to the upload formats (PDF/JPEG/PNG); automatic format detection is respected.
+to the upload formats (PDF/JPEG/PNG); `auto_sensing` is separate. Octet-stream-only advertising does not establish
+PDF/JPEG/PNG support.
 No printer address, credentials or raw IPP attributes are exposed.
 
 The per-device cache refreshes on demand after 15 minutes, serializes simultaneous

@@ -32,15 +32,26 @@ const C = customElements.get(TAG);
 C.getStubConfig = function () { return { title: 'Print' }; };
 
 C.prototype.setConfig = function (config) {
-  this._config = Object.assign({ title: 'Print' }, config || {});
+  if (config?.copies !== undefined && (!Number.isInteger(config.copies) || config.copies < 1 || config.copies > 99)) throw new Error('Copies must be an integer from 1 to 99.');
+  for (const key of ['duplex','duplex_in_options']) if (config?.[key] !== undefined && typeof config[key] !== 'boolean') throw new Error(`${key} must be true or false.`);
+  if (config?.binding !== undefined && !['two-sided-long-edge','two-sided-short-edge'].includes(config.binding)) throw new Error('Invalid two-sided binding.');
+  const previousConfig = this._config;
+  const previousEntity = this._config?.entity;
+  this._config = Object.assign({ title: 'Print', copies: 1, duplex: false, binding: 'two-sided-long-edge' }, config || {});
+  this._settings ||= { copies: this._config.copies, binding: this._config.binding, media: '', media_source: '', color_mode: '', quality: '' };
+  for (const key of ['copies','binding','duplex']) {
+    if (previousConfig?.[key] !== this._config[key]) (this._pendingSettings ||= {})[key] = this._config[key];
+  }
+  if (previousEntity !== this._config.entity) this._pendingTargetReset = true;
   this._render();
   // _render is one-shot; apply config changes (card editor) directly.
   if (this._titleEl) this._titleEl.textContent = this._config.title;
+  this._syncControls();
 };
 
 // hass is set every state update; keep the latest reference for the token.
 Object.defineProperty(C.prototype, 'hass', {
-  set(hass) { this._hass = hass; },
+  set(hass) { this._hass = hass; this._syncControls(); this._refreshOptions(); },
   configurable: true,
 });
 
@@ -86,15 +97,30 @@ C.prototype._render = function () {
       .cancel { display: none; color: var(--error-color); }
       .cancel.show { display: block; }
       @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+      .options-button { margin-left: auto; flex: none; width: 44px; padding: 8px; }
+      .options { box-sizing: border-box; display: grid; gap: 12px; width: min(400px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; padding: 20px; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); color: var(--primary-text-color); background: var(--card-background-color); }
+      .options::backdrop { background: rgba(0, 0, 0, .45); }
+      .options h2 { font-size: 20px; margin: 0 0 4px; }
+      .option-field { display: grid; gap: 4px; min-width: 0; font-size: 14px; }
+      .option-field select, .option-field input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: var(--primary-text-color); background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
+      .options-help { color: var(--secondary-text-color); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+      .warning { color: var(--warning-color, var(--primary-text-color)); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
       /* End shared document-card base. */
+      .toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; font-size: 14px; }
+      .two-sided { appearance: none; position: relative; width: 36px; height: 22px; margin: 0; border-radius: 12px; background: var(--disabled-text-color); cursor: pointer; }
+      .two-sided::before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; border-radius: 50%; background: var(--card-background-color); }
+      .two-sided:checked { background: var(--primary-color); }
+      .two-sided:checked::before { left: 17px; }
+      .two-sided:disabled { opacity: .5; cursor: default; }
       .file-name { font-size: 14px; line-height: 20px; color: var(--secondary-text-color); overflow-wrap: anywhere; }
       .file-actions { display: flex; gap: 8px; margin-top: 8px; }
       .file-actions button { flex: 1; min-width: 0; padding: 8px 4px; }
     </style>
     <ha-card>
-      <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div></div>
+      <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div><button class="options-button" type="button" aria-expanded="false" aria-controls="options" aria-label="Options" title="Options"><ha-icon icon="mdi:tune" aria-hidden="true"></ha-icon></button></div>
       <div class="status" aria-live="polite" aria-atomic="true"></div>
       <div class="controls">
+        <label class="toggle"><span>Two-sided</span><input class="two-sided" type="checkbox" role="switch" aria-label="Two-sided print"></label>
         <div class="file-name"></div>
         <div class="file-actions" hidden><button class="replace" type="button">Replace</button><button class="clear" type="button">Clear</button></div>
       </div>
@@ -112,6 +138,11 @@ C.prototype._render = function () {
   this._fileNameEl = root.querySelector('.file-name');
   this._fileActionsEl = root.querySelector('.file-actions');
   this._titleEl.textContent = this._config.title;
+  this._twoSidedEl = root.querySelector('.two-sided');
+  this._twoSidedEl.addEventListener('change', () => {
+    if (this._busy || this._activeJobId != null) { this._syncControls(); return; }
+    this._duplex = this._twoSidedEl.checked; this._refreshOptions(); this._syncControls();
+  });
   this._primaryEl.addEventListener('click', () => {
     if (this._stagedFile) this._upload(this._stagedFile);
     else this._pick();
@@ -124,6 +155,7 @@ C.prototype._render = function () {
     this._setStatus('');
     this._syncControls();
   });
+  this._installOptions();
   this._rendered = true;
   this._setStatus('');
   this._syncControls();
@@ -132,6 +164,16 @@ C.prototype._render = function () {
 C.prototype._syncControls = function () {
   if (!this._primaryEl) return;
   const locked = !!this._busy || this._activeJobId != null;
+  if (!locked && this._pendingTargetReset) {
+    this._pendingTargetReset = false;
+    this._selectedEntity = null; this._optionCapabilities = null; this._optionsRequest?.abort();
+  }
+  if (!locked && this._pendingSettings) {
+    const { duplex, ...settings } = this._pendingSettings;
+    Object.assign(this._settings, settings);
+    if (duplex !== undefined) this._duplex = duplex;
+    this._pendingSettings = null;
+  }
   this._primaryEl.disabled = locked;
   this._primaryEl.hidden = !!this._showCancel;
   this._primaryEl.textContent = this._busy ? 'Submitting…'
@@ -139,6 +181,8 @@ C.prototype._syncControls = function () {
   this._fileNameEl.textContent = this._stagedFile?.name || this._jobFilename || 'PDF or image';
   this._fileActionsEl.hidden = !this._stagedFile || locked;
   for (const button of this._fileActionsEl.querySelectorAll('button')) button.disabled = locked;
+  this._syncOptions(locked);
+  if (!locked && this._stagedFile && this._settingsError) this._primaryEl.disabled = true;
 };
 
 function fileError(file) {
@@ -157,7 +201,9 @@ C.prototype._stageFile = function (file) {
   this._stopProgress();
   this._stagedFile = file;
   this._jobFilename = null;
+  this._warningEl.textContent = '';
   this._setStatus('Ready to print');
+  this._refreshOptions();
   this._syncControls();
 };
 
@@ -192,6 +238,7 @@ C.prototype._authedFetch = function (path, init) {
 // one; several means the user must pick. Legacy installs keep
 // sensor.printer_current_job in the registry, so it is found the same way.
 C.prototype._sensorId = function () {
+  if (this._selectedEntity) return this._selectedEntity;
   if (this._config?.entity) return this._config.entity;
   const hass = this._getHass();
   const ids = Object.values(hass?.entities || {})
@@ -202,7 +249,7 @@ C.prototype._sensorId = function () {
     return 'sensor.printer_current_job';
   }
   if (ids.length > 1) {
-    throw new Error('several printers configured; set entity: on the card');
+    throw new Error('several printers configured; select one in Options or set entity: on the card');
   }
   return null;
 };
@@ -311,6 +358,15 @@ C.prototype._upload = async function (file) {
 
   let definitelyRejected = false;
   try {
+    await this._refreshOptions();
+    if (!this.isConnected) { definitelyRejected = true; throw new Error('Printer settings changed. Try again.'); }
+    const options = this._optionCapabilities?.body?.request_options || [];
+    if (this._duplex && !options.includes('sides')) { definitelyRejected = true; throw new Error('Two-sided settings are unavailable. Open Options to check this printer.'); }
+    if (options.includes('copies')) form.append('copies', String(this._settings.copies));
+    if (options.includes('sides')) form.append('sides', this._duplex ? this._settings.binding : 'one-sided');
+    for (const key of ['media', 'media_source', 'color_mode', 'quality']) {
+      if (this._settings[key] && options.includes(key)) form.append(key, String(this._settings[key]));
+    }
     // Returns the printer-assigned job-id we then track via the job sensor.
     const resp = await this._authedFetch('/api/ipp_print/print', {
       method: 'POST',
@@ -322,7 +378,8 @@ C.prototype._upload = async function (file) {
       try { body = await resp.json(); } catch { /* keep null */ }
     }
     if (!resp.ok) {
-      definitelyRejected = resp.status >= 400 && resp.status < 500 && resp.status !== 408;
+      definitelyRejected = body?.job_may_exist === false
+        || (resp.status >= 400 && resp.status < 500 && resp.status !== 408);
       const msg = [body?.message, body?.error].find(value => typeof value === 'string' && value.trim());
       throw new Error(msg || `HTTP ${resp.status}`);
     }
@@ -336,6 +393,7 @@ C.prototype._upload = async function (file) {
     this._activeSensorId = sensorId;
     this._setCancelVisible(true);
     this._setStatus(`Submitted ✓ ${name}`, 'ok');
+    this._warningEl.textContent = typeof body.warning === 'string' ? body.warning : '';
     // Subscribe to the job sensor's updates for this job-id.
     this._trackPrintProgress(sensorId).catch((e) => {
       console.warn('[ipp-print] progress tracking error', e);
@@ -374,6 +432,7 @@ C.prototype._stopProgress = function () {
 
 C.prototype._disconnected = function () {
   this._cleanupPicker?.();
+  this._optionsRequest?.abort();
   this._stopProgress();
 };
 
@@ -408,6 +467,7 @@ C.prototype._trackPrintProgress = async function (sensorId) {
     }
   };
   const render = (state, attrs) => {
+    if (typeof attrs?.warning === 'string') this._warningEl.textContent = attrs.warning;
     const pagesDone = attrs?.pages_done;
     const pagesTotal = attrs?.pages_total;
     if (state === 'processing') {
@@ -624,3 +684,206 @@ try {
   observer.observe(document.body, {childList: true, subtree: true});
   setTimeout(() => { try { observer.disconnect(); } catch {} }, 30_000);
 } catch {}
+
+// Shared document-card option helpers. Keep this small block identical in both cards.
+function optionChoices(select, choices, value) {
+  const signature = JSON.stringify(choices);
+  if (select.dataset.choices !== signature) {
+    select.replaceChildren(...choices.map(([key, label, disabled]) => {
+      const option = document.createElement('option');
+      option.value = String(key); option.textContent = label; option.disabled = !!disabled;
+      return option;
+    }));
+    select.dataset.choices = signature;
+  }
+  select.value = String(value);
+}
+function addOptionField(panel, key, label, type = 'select') {
+  const wrapper = document.createElement('label');
+  wrapper.className = 'option-field'; wrapper.textContent = label;
+  const input = document.createElement(type === 'select' ? 'select' : 'input');
+  input.dataset.option = key;
+  if (type !== 'select') input.type = type;
+  wrapper.append(input); panel.append(wrapper);
+  return input;
+}
+C.prototype._toggleOptions = function (open) {
+  this._optionsOpen = open;
+  this._optionsPanel.hidden = !open;
+  this._optionsButton.setAttribute('aria-expanded', String(open));
+  if (open) {
+    this._refreshOptions();
+    if (!this._optionsPanel.open) this._optionsPanel.showModal?.();
+    this._optionsPanel.querySelector('select:not(:disabled), input:not(:disabled)')?.focus();
+  } else {
+    this._optionsPanel.close?.(); this._optionsButton.focus();
+  }
+};
+C.prototype._createOptionsPanel = function () {
+  this._optionsButton = this.shadowRoot.querySelector('.options-button');
+  const panel = document.createElement('dialog');
+  panel.className = 'options'; panel.id = 'options'; panel.hidden = true;
+  panel.setAttribute('aria-labelledby', 'options-heading');
+  const heading = document.createElement('h2'); heading.id = 'options-heading';
+  heading.textContent = this.localName === 'escl-scan-card' ? 'Scan options' : 'Print options';
+  panel.append(heading); this.shadowRoot.append(panel);
+  panel.addEventListener('cancel', event => { event.preventDefault(); this._toggleOptions(false); });
+  this._optionsPanel = panel;
+  this._optionsButton.addEventListener('click', () => this._toggleOptions(!this._optionsOpen));
+  panel.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.stopPropagation(); this._toggleOptions(false); }
+  });
+  this._optionHelp = document.createElement('div');
+  this._optionHelp.className = 'options-help'; this._optionHelp.setAttribute('aria-live', 'polite');
+  return panel;
+};
+C.prototype._finishOptionsPanel = function () {
+  this._optionsPanel.append(this._optionHelp);
+  const done = document.createElement('button'); done.type = 'button'; done.textContent = 'Done';
+  done.addEventListener('click', () => this._toggleOptions(false));
+  this._optionsPanel.append(done);
+};
+
+C.prototype._installOptions = function () {
+  const panel = this._createOptionsPanel();
+  this._optionFields = {
+    entity_id: addOptionField(panel, 'entity_id', 'Printer'),
+    copies: addOptionField(panel, 'copies', 'Copies', 'number'),
+    binding: addOptionField(panel, 'binding', 'Two-sided binding'),
+    media: addOptionField(panel, 'media', 'Paper'),
+    media_source: addOptionField(panel, 'media_source', 'Tray'),
+    color_mode: addOptionField(panel, 'color_mode', 'Color'),
+    quality: addOptionField(panel, 'quality', 'Quality'),
+  };
+  for (const [key, field] of Object.entries(this._optionFields)) {
+    field.addEventListener('change', () => {
+      if (field.disabled || this._busy || this._activeJobId != null) return;
+      if (key === 'entity_id') {
+        this._selectedEntity = field.value || null;
+        this._optionCapabilities = null; this._optionsRequest?.abort();
+        this._settings.media = this._settings.media_source = this._settings.color_mode = this._settings.quality = '';
+        this._refreshOptions();
+      } else this._settings[key] = key === 'copies' ? Number(field.value) : field.value;
+      this._syncControls();
+    });
+  }
+  this._warningEl = document.createElement('div'); this._warningEl.className = 'warning';
+  this._warningEl.setAttribute('aria-live', 'polite');
+  this.shadowRoot.querySelector('.status').after(this._warningEl);
+  this._finishOptionsPanel();
+};
+C.prototype._refreshOptions = function () {
+  let entity;
+  try { entity = this._sensorId(); } catch { this._syncControls(); return Promise.resolve(); }
+  if (!entity || !this.isConnected) return Promise.resolve();
+  const file = this._stagedFile;
+  const fmt = ACCEPTED_TYPES.has(file?.type) ? file.type : /\.pdf$/i.test(file?.name || '') ? 'application/pdf'
+    : /\.png$/i.test(file?.name || '') ? 'image/png' : file ? 'image/jpeg' : null;
+  const key = `${entity}|${fmt || ''}`;
+  if (this._optionsRequest?.key === key && !this._optionsRequest.signal.aborted) return this._optionsPromise;
+  if (this._optionCapabilities?.key === key && this._optionCapabilities.expires > Date.now()) return Promise.resolve();
+  this._optionsRequest?.abort();
+  const request = new AbortController(); request.key = key;
+  this._optionsRequest = request;
+  const caps = { key, expires: Date.now() + 300_000, body: null };
+  this._optionCapabilities = caps;
+  this._optionsPromise = (async () => {
+    const timeout = setTimeout(() => request.abort(), 20_000);
+    try {
+      const base = '/api/ipp_print/capabilities?entity_id=' + encodeURIComponent(entity);
+      let response = await this._authedFetch(base + (fmt ? '&document_format=' + encodeURIComponent(fmt) : ''), { signal: request.signal });
+      if (fmt && response.status === 400 && !request.signal.aborted) response = await this._authedFetch(base, { signal: request.signal });
+      if (!response.ok) return;
+      const body = await response.json();
+      if (request.signal.aborted || this._optionCapabilities !== caps || body?.schema_version !== 1
+          || body.domain !== 'ipp_print' || body.entity_id !== entity || body.status !== 'fresh') return;
+      caps.body = body;
+      caps.expires = Date.now() + Math.max(1, Math.min(900, Number(body.refresh_after_seconds) || 300)) * 1000;
+    } catch { /* Existing default printing remains available without new capability metadata. */ }
+    finally {
+      clearTimeout(timeout);
+      if (this._optionsRequest === request) this._optionsRequest = null;
+      this._syncControls();
+    }
+  })();
+  return this._optionsPromise;
+};
+C.prototype._syncOptions = function (locked) {
+  if (!this._optionFields) return;
+  const body = this._optionCapabilities?.expires > Date.now() ? this._optionCapabilities.body : null;
+  const supported = body?.supported || {};
+  const options = Array.isArray(body?.request_options) ? body.request_options : [];
+  const fields = this._optionFields, settings = this._settings;
+  if (locked) {
+    this._twoSidedEl.disabled = true;
+    for (const field of Object.values(fields)) field.disabled = true;
+    return;
+  }
+  this._settingsError = '';
+  const toggle = this._twoSidedEl.closest('label');
+  const parent = this._config.duplex_in_options ? this._optionsPanel : this.shadowRoot.querySelector('.controls');
+  if (toggle.parentElement !== parent) parent.prepend(toggle);
+  this._twoSidedEl.checked = !!this._duplex;
+  this._twoSidedEl.disabled = locked || (!this._duplex && (!options.includes('sides')
+    || (Array.isArray(supported.sides) && !supported.sides.some(x => typeof x === 'string' && x.startsWith('two-sided')))));
+  const hass = this._getHass();
+  const printers = Object.values(hass?.entities || {}).filter(e => e.platform === 'ipp_print' && e.entity_id?.startsWith('sensor.')).slice(0, 128);
+  let selected = ''; try { selected = this._sensorId() || ''; } catch {}
+  optionChoices(fields.entity_id, [['', 'Select a printer'], ...printers.map(e => [e.entity_id, hass?.states?.[e.entity_id]?.attributes?.friendly_name || e.entity_id])], selected);
+  fields.entity_id.closest('label').hidden = printers.length < 2;
+  fields.entity_id.disabled = locked;
+  fields.copies.min = '1'; fields.copies.max = String(Math.min(99, supported.copies_max || 99));
+  if (this.shadowRoot.activeElement !== fields.copies) fields.copies.value = settings.copies;
+  fields.copies.disabled = locked || !options.includes('copies');
+  const sides = Array.isArray(supported.sides) ? supported.sides : ['two-sided-long-edge','two-sided-short-edge'];
+  optionChoices(fields.binding, [['two-sided-long-edge', 'Long edge', !sides.includes('two-sided-long-edge')], ['two-sided-short-edge', 'Short edge', !sides.includes('two-sided-short-edge')]], settings.binding);
+  fields.binding.disabled = locked || !this._duplex || !options.includes('sides');
+  const lists = { media: supported.media, media_source: supported.media_sources, color_mode: supported.color_modes, quality: supported.qualities };
+  const labels = { 3: 'Draft', 4: 'Normal', 5: 'Best', monochrome: 'Black and white', color: 'Color', auto: 'Automatic', 'na_letter_8.5x11in': 'Letter', iso_a4_210x297mm: 'A4' };
+  for (const [key, list] of Object.entries(lists)) {
+    const choices = Array.isArray(list) ? list.filter(x => typeof x === 'string' || Number.isInteger(x)).slice(0,128) : [];
+    if (settings[key] && !choices.some(x => String(x) === String(settings[key]))) {
+      choices.push(settings[key]);
+      this._settingsError = 'A selected setting is unavailable for this document. Choose Device default or another supported value.';
+    }
+    optionChoices(fields[key], [['','Device default'], ...choices.map(value => [value, labels[value] || String(value)])], settings[key]);
+    fields[key].disabled = locked || !options.includes(key) || !choices.length;
+  }
+  if (this._duplex && !sides.includes(settings.binding)) this._settingsError = 'Choose another binding or turn off Two-sided.';
+  if (!Number.isInteger(settings.copies) || settings.copies < 1 || settings.copies > Number(fields.copies.max)) this._settingsError = `Enter a copy count from 1 to ${fields.copies.max}.`;
+  this._optionHelp.textContent = this._settingsError || (!body ? 'Choose a printer and file to load settings. Device defaults apply while settings are unavailable.'
+    : !this._stagedFile && this._activeJobId == null ? 'Choose a document to load its paper, tray, color and quality settings.'
+    : this._duplex && !sides.includes(settings.binding) ? 'This printer does not advertise the selected binding. Choose another binding or turn off Two-sided.'
+    : `Settings apply to the next print.${Array.isArray(supported.media_ready) && supported.media_ready.length ? ' Loaded: ' + supported.media_ready.map(x => labels[x] || x).join(', ') + '.' : ''}`);
+};
+C.getConfigElement = function () { return document.createElement(TAG + '-editor'); };
+if (!customElements.get(TAG + '-editor')) {
+  customElements.define(TAG + '-editor', class extends HTMLElement {
+    setConfig(config) { this._config = config || {}; this._render(); }
+    set hass(hass) { this._hass = hass; if (this._form) this._form.hass = hass; }
+    _render() {
+      if (!this._form) {
+        this._form = document.createElement('ha-form');
+        this._form.schema = [
+          { name: 'title', selector: { text: {} } },
+          { name: 'entity', selector: { entity: { domain: 'sensor', integration: 'ipp_print' } } },
+          { name: 'copies', selector: { number: { min: 1, max: 99, mode: 'box' } } },
+          { name: 'duplex', selector: { boolean: {} } },
+          { name: 'binding', selector: { select: { options: ['two-sided-long-edge','two-sided-short-edge'] } } },
+          { name: 'duplex_in_options', selector: { boolean: {} } },
+        ];
+        const labels = { title: 'Title', entity: 'Printer sensor (optional)', copies: 'Default copies', duplex: 'Two-sided by default', binding: 'Default binding', duplex_in_options: 'Show Two-sided inside Options' };
+        this._form.computeLabel = field => labels[field.name] || field.name;
+        this._form.addEventListener('value-changed', event => {
+          event.stopPropagation();
+          const config = { ...this._config, ...event.detail.value };
+          if (!config.entity) delete config.entity;
+          this._config = config;
+          this.dispatchEvent(new CustomEvent('config-changed', { detail: { config }, bubbles: true, composed: true }));
+        });
+        this.append(this._form);
+      }
+      this._form.hass = this._hass; this._form.data = this._config;
+    }
+  });
+}

@@ -66,12 +66,16 @@ function boot() {
 // Default registry: one ipp_print sensor, so cards without `entity:` resolve.
 const ONE_PRINTER = { [SENSOR]: { entity_id: SENSOR, platform: 'ipp_print' } };
 
-function makeHass(win, { fetchImpl, states = {}, entities = ONE_PRINTER } = {}) {
-  const calls = { subscribe: [], fetch: [] };
+function makeHass(win, { fetchImpl, capabilitiesImpl, states = {}, entities = ONE_PRINTER } = {}) {
+  const calls = { subscribe: [], fetch: [], capabilities: [] };
   const hass = {
     states,
     entities,
     fetchWithAuth: async (url, init) => {
+      if (url.startsWith('/api/ipp_print/capabilities?')) {
+        calls.capabilities.push({ url, init });
+        return capabilitiesImpl ? capabilitiesImpl(url, init) : jsonResponse({}, 404);
+      }
       calls.fetch.push({ url, init });
       return fetchImpl(url, init);
     },
@@ -466,6 +470,7 @@ test('file selection stages locally and Print submits once with file changes loc
   assert.equal(el._primaryEl.textContent, 'Print');
   el._primaryEl.click();
   el._primaryEl.click();
+  await tick(); // Settings are checked before the document POST.
   el.shadowRoot.querySelector('.clear').click();
   el._stageFile(file(win, 'other.pdf', 'application/pdf'));
   assert.equal(el._stagedFile, document);
@@ -584,4 +589,73 @@ test('native lifecycle hooks close an established subscription and reconnect onc
   win.document.body.appendChild(el);
   await tick();
   assert.equal(calls.subscribe.length, 2);
+});
+
+function optionCaps(entity = SENSOR) {
+  return {schema_version:1,domain:'ipp_print',entity_id:entity,status:'fresh',
+    request_options:['copies','sides','media','media_source','color_mode','quality'],
+    supported:{copies_max:5,sides:['one-sided','two-sided-long-edge'],media:['iso_a4_210x297mm'],
+      media_sources:['auto','tray-1'],color_modes:['monochrome','color'],qualities:[3,4]}};
+}
+function changeOption(win, el, name, value) {
+  const field=el._optionFields[name];field.value=value;field.dispatchEvent(new win.Event('change'));return field;
+}
+test('new print backend receives explicit defaults and complete selected settings', async () => {
+  const win=boot(),el=mount(win);
+  const {hass,calls}=makeHass(win,{capabilitiesImpl:async()=>jsonResponse(optionCaps()),
+    fetchImpl:async()=>jsonResponse({job_id:23,filename:'settings.pdf',warning:'Printer substituted a setting.'})});
+  el.hass=hass;const chosen=file(win,'settings.pdf','application/pdf');el._stageFile(chosen);await tick();
+  el._toggleOptions(true);
+  changeOption(win,el,'media','iso_a4_210x297mm');changeOption(win,el,'media_source','tray-1');
+  changeOption(win,el,'color_mode','monochrome');changeOption(win,el,'quality','3');
+  await el._upload(chosen);const body=calls.fetch[0].init.body;
+  assert.equal(body.get('copies'),'1');assert.equal(body.get('sides'),'one-sided');
+  assert.equal(body.get('media_source'),'tray-1');assert.equal(body.get('quality'),'3');
+  assert.ok(calls.capabilities.some(call=>/document_format=application%2Fpdf/.test(call.url)));
+  assert.match(el._warningEl.textContent,/substituted/);
+  assert.equal(el._optionFields.media.disabled,true);
+});
+test('print dialog preserves focus, validates copies and defers editor changes during an upload', async () => {
+  const win=boot(),el=mount(win);let finish;
+  const {hass}=makeHass(win,{capabilitiesImpl:async()=>jsonResponse(optionCaps()),
+    fetchImpl:()=>new Promise(resolve=>{finish=resolve;})});
+  el.hass=hass;const chosen=file(win,'settings.pdf','application/pdf');el._stageFile(chosen);await tick();
+  el._toggleOptions(true);const copies=changeOption(win,el,'copies','6');
+  assert.equal(el._primaryEl.disabled,true);changeOption(win,el,'copies','2');copies.focus();
+  el.hass={...hass};assert.equal(el.shadowRoot.activeElement,copies);assert.equal(copies.value,'2');
+  el.setConfig({title:'Office'});assert.equal(el._settings.copies,2);
+  const upload=el._upload(chosen);await tick();el.setConfig({copies:3});assert.equal(el._settings.copies,2);
+  finish(jsonResponse({message:'No print job was submitted'},400));await upload;
+  assert.equal(el._stagedFile,chosen);assert.equal(el._settings.copies,3);
+  copies.dispatchEvent(new win.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  assert.equal(el._optionsPanel.hidden,true);assert.equal(el.shadowRoot.activeElement,el._optionsButton);
+});
+test('printer selection ignores stale capabilities and sends the chosen queue', async () => {
+  const win=boot(),el=mount(win);let first;
+  const ids=['sensor.first_job','sensor.second_job'];
+  const {hass,calls}=makeHass(win,{entities:Object.fromEntries(ids.map(entity_id=>[entity_id,{entity_id,platform:'ipp_print'}])),
+    capabilitiesImpl:async url=>url.includes('first_job')?new Promise(resolve=>{first=resolve;}):jsonResponse(optionCaps(ids[1])),
+    fetchImpl:async()=>jsonResponse({job_id:9})});
+  el.hass=hass;el._toggleOptions(true);
+  changeOption(win,el,'entity_id',ids[0]);changeOption(win,el,'entity_id',ids[1]);await tick();
+  first(jsonResponse(optionCaps(ids[0])));await tick();
+  assert.equal(el._optionCapabilities.body.entity_id,ids[1]);
+  el._stageFile(file(win,'queue.pdf','application/pdf'));await tick();await el._upload(el._stagedFile);
+  assert.equal(calls.fetch[0].init.body.get('entity_id'),ids[1]);
+});
+test('file change retains unsupported selected values with an explanation instead of silently clearing them', async () => {
+  const win=boot(),el=mount(win);
+  const {hass}=makeHass(win,{capabilitiesImpl:async url=>{const caps=optionCaps();if(url.includes('image%2Fpng'))caps.supported.color_modes=['monochrome'];return jsonResponse(caps);}});
+  el.hass=hass;el._stageFile(file(win,'color.pdf','application/pdf'));await tick();
+  changeOption(win,el,'color_mode','color');el._stageFile(file(win,'gray.png','image/png'));await tick();
+  assert.equal(el._settings.color_mode,'color');assert.equal(el._primaryEl.disabled,true);
+  assert.match(el._optionHelp.textContent,/unavailable/);
+  changeOption(win,el,'color_mode','');assert.equal(el._primaryEl.disabled,false);
+});
+
+test('a confirmed preflight connection failure retains the selected document', async () => {
+  const win=boot(),el=mount(win);
+  const {hass}=makeHass(win,{fetchImpl:async()=>jsonResponse({message:'No print job was submitted',job_may_exist:false},502)});
+  el.hass=hass;const chosen=file(win,'retry.pdf','application/pdf');el._stageFile(chosen);
+  await el._upload(chosen);assert.equal(el._stagedFile,chosen);
 });
