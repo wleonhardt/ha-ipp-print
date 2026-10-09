@@ -131,9 +131,8 @@ const CARD_TRANSLATIONS = {
     "status.submitted": "Submitted ✓ {name}",
     "status.submit_failed": "Submit failed: {error}{guidance}",
     "help.uncertain": " Check the printer queue before choosing the file again; it may already have printed.",
-    "status.printing": "Printing{progress}…",
-    "status.page": " page {count}",
-    "status.page_total": " page {count}/{total}",
+    "status.printing": "Printing…{progress}",
+    "status.page": {"one": " {count} page printed", "other": " {count} pages printed"},
     "status.paused": "Printing paused{reason}",
     "status.complete": {
       "one": "Print complete ✓ ({count} page)",
@@ -147,7 +146,7 @@ const CARD_TRANSLATIONS = {
     "help.next_job": "Settings apply to the next print.{loaded}",
     "help.loaded": " Loaded: {paper}.",
     "error.copies_range": "Enter a copy count from 1 to {max}.",
-    "status.sheet": " sheet {count}",
+    "status.sheet": {"one": " {count} sheet printed", "other": " {count} sheets printed"},
     "status.complete_sheets": {
       "one": "Print complete ✓ ({count} sheet)",
       "other": "Print complete ✓ ({count} sheets)"
@@ -813,10 +812,12 @@ C.prototype._connected = function () {
 C.prototype._renderJobState = function (state, attrs) {
   setText(this._warningEl, typeof attrs.warning === 'string' ? attrs.warning : '');
   const validCount = value => Number.isInteger(value) && value >= 0 ? value : null;
-  const done = validCount(attrs.pages_done), total = validCount(attrs.pages_total);
+  const done = validCount(attrs.pages_done);
   if (state === 'processing') {
+    // Some printers grow job-impressions while rendering (HP: 0 -> 2 -> 4).
+    // A provisional total must not make an active job look finished at 2/2.
     const progress = done != null
-      ? this._msg(attrs.progress_unit === 'sheets' ? 'status.sheet' : total > 0 ? 'status.page_total' : 'status.page', { count: done, total }) : '';
+      ? this._msg(attrs.progress_unit === 'sheets' ? 'status.sheet' : 'status.page', { count: done }) : '';
     this._setMessage('status.printing', { progress });
   } else if (state === 'pending' || state === 'pending-held') this._setMessage('status.queued');
   else if (state === 'processing-stopped') {

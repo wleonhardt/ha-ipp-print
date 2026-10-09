@@ -175,6 +175,10 @@ file staged in one card remains local to that card. Tracking is still in memory:
 restarting HA or reloading the integration does not recover past jobs. Durable
 scan results and activity history are a later phase.
 
+Live print progress shows completed pages or sheets. Some printers increase
+their reported total while rendering, so the card avoids a provisional fraction
+that could imply completion early. Only the terminal job state confirms completion.
+
 ## Sensor + events
 
 `sensor.<printer>_current_job` — one per configured printer, named after the

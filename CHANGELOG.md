@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.9.1] - 2026-10-09
+
+### Fixed
+- Live HP testing showed job-impressions growing from 0 to 2 to 4 during a
+  four-side print. Show completed pages/sheets while processing instead of a
+  provisional fraction such as 2/2. Completion still requires the printer's
+  terminal state; backend counters remain available to automations.
+
 ## [0.9.0] - 2026-10-09
 
 ### Added

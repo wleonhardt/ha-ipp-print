@@ -162,9 +162,9 @@ test('upload and remote jobs follow HA state without extra subscriptions', async
   assert.equal(el._activeJobId, 42);
   assert.equal(calls.subscribe.length, 0);
   push(el, hass, 'processing', { job_id: 42, pages_done: 0, pages_total: 3 }, 'sensor.office_job');
-  assert.equal(el._statusEl.textContent, 'Printing page 0/3…');
+  assert.equal(el._statusEl.textContent, 'Printing… 0 pages printed');
   push(el, hass, 'processing', { job_id: 42, pages_done: 2, pages_total: 3 }, 'sensor.office_job');
-  assert.equal(el._statusEl.textContent, 'Printing page 2/3…');
+  assert.equal(el._statusEl.textContent, 'Printing… 2 pages printed');
   push(el, hass, 'pending', { job_id: 99 }, 'sensor.office_job');
   assert.equal(el._activeJobId, 99);
   assert.equal(el._statusEl.textContent, 'Queued for printer…');
@@ -937,4 +937,21 @@ test('progress updates do not allow a second cancel while the first is pending',
   finish(jsonResponse({ ok: true }));
   await cancel;
   assert.match(el._statusEl.textContent, /Cancelling/);
+});
+
+
+test('growing HP totals never make active progress look complete', () => {
+  const win = boot();
+  const el = mount(win, { entity: SENSOR });
+  const { hass } = makeHass(win); el.hass = hass;
+  const attrs = { job_id: 371, submitted_at: '2026-10-09T12:59:30Z', progress_unit: 'impressions' };
+  push(el, hass, 'processing', { ...attrs, pages_done: 0, pages_total: 0 });
+  assert.equal(el._statusEl.textContent, 'Printing… 0 pages printed');
+  push(el, hass, 'processing', { ...attrs, pages_done: 2, pages_total: 2 });
+  assert.equal(el._statusEl.textContent, 'Printing… 2 pages printed');
+  assert.equal(el._activeJobId, 371);
+  push(el, hass, 'completed', { ...attrs, pages_done: 4, pages_total: 4 });
+  assert.equal(el._statusEl.textContent, 'Print complete ✓ (4 pages)');
+  push(el, hass, 'processing', { ...attrs, job_id: 372, progress_unit: 'sheets', pages_done: 1, pages_total: 8 });
+  assert.equal(el._statusEl.textContent, 'Printing… 1 sheet printed');
 });
