@@ -406,3 +406,26 @@ async def test_preflight_failure_confirms_no_job_and_never_uploads(
     assert response.status == 400
     assert (await response.json())["job_may_exist"] is False
     post.assert_not_awaited()
+
+
+async def test_cancel_submission_identity_prevents_stale_queue_id(hass, hass_client):
+    entry = await _setup(hass)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    with patch.object(JobCoordinator, "_ensure_poll_loop"):
+        job = coordinator.track(job_id=7, filename="new.pdf", bytes_sent=1)
+    with patch.object(integration.PrinterClient, "cancel_job", AsyncMock(return_value=0)) as cancel:
+        client = await hass_client()
+        invalid = await client.post("/api/ipp_print/cancel", json={
+            "job_id": 7, "submitted_at": 4,
+        })
+        assert invalid.status == 400
+        stale = await client.post("/api/ipp_print/cancel", json={
+            "job_id": 7, "submitted_at": "2020-01-01T00:00:00Z",
+        })
+        assert stale.status == 502
+        cancel.assert_not_called()
+        current = await client.post("/api/ipp_print/cancel", json={
+            "job_id": 7, "submitted_at": job.submitted_at.isoformat(),
+        })
+        assert current.status == 200
+        cancel.assert_awaited_once_with(7)

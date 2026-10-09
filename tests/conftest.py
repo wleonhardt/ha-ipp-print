@@ -50,3 +50,11 @@ def validation_result():
     with patch("custom_components.ipp_print.printer.PrinterClient.validate_job",
                new=AsyncMock(return_value=None)) as mock:
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def printer_status():
+    """The periodic connection probe never opens sockets in setup tests."""
+    with patch("custom_components.ipp_print.printer.PrinterClient.get_connection_status",
+               new=AsyncMock(return_value=None)) as mock:
+        yield mock

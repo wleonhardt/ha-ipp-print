@@ -71,12 +71,15 @@ class PrinterJobSensor(SensorEntity):
     _attr_should_poll = False
 
     def __init__(self, entry: ConfigEntry, data: dict) -> None:
+        self._connection = data.get("connection")
         self._coord: JobCoordinator = data["coordinator"]
         self._attr_unique_id = f"{entry.entry_id}_current_job"
         self._attr_device_info = _device_info(entry, data)
         self._unsub = None
 
     async def async_added_to_hass(self) -> None:
+        if self._connection:
+            self.async_on_remove(self._connection.register_update_listener(self._handle_update))
         self._unsub = self._coord.register_update_listener(self._handle_update)
         # Without this the entity stays "unavailable" until first job submit.
         self.async_write_ha_state()
@@ -98,4 +101,7 @@ class PrinterJobSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         job = self._coord.current
-        return {"job_id": None} if job is None else job.to_dict()
+        attrs = {"job_id": None} if job is None else job.to_dict()
+        if self._connection:
+            attrs["device_connection"] = self._connection.snapshot()
+        return attrs

@@ -10,7 +10,7 @@ Three observable surfaces:
 * `ipp_print_job_completed` events fire once per terminal transition.
 
 Jobs whose printer stops answering are given up after MAX_POLL_FAILURES
-consecutive failures and reported as `aborted` with state_reasons
+consecutive failures and reported as `unknown` with state_reasons
 `printer-unreachable`, so the sensor can never stick on `processing`.
 """
 from __future__ import annotations
@@ -51,6 +51,7 @@ class TrackedJob:
     state_reasons: str | None = None
     pages_done: int | None = None
     pages_total: int | None = None
+    progress_unit: str | None = None
     finished_at: datetime | None = None
     cancel_requested: bool = False
     fail_count: int = 0  # consecutive poll failures
@@ -72,6 +73,7 @@ class TrackedJob:
             "requested_settings": self.requested_settings,
             "pages_done": self.pages_done,
             "pages_total": self.pages_total,
+            "progress_unit": self.progress_unit,
             "submitted_at": self.submitted_at.isoformat(),
             "finished_at": (
                 self.finished_at.isoformat() if self.finished_at else None
@@ -219,7 +221,7 @@ class JobCoordinator:
                 job.job_id, job.fail_count, MAX_POLL_FAILURES, exc,
             )
             if job.fail_count >= MAX_POLL_FAILURES:
-                self._mark_terminal(job, "aborted", "printer-unreachable")
+                self._mark_terminal(job, "unknown", "printer-unreachable")
             return
         job.fail_count = 0
         self._apply_attrs(job, attrs)
@@ -228,13 +230,16 @@ class JobCoordinator:
         prior_state = job.state
         job.state = attrs.job_state_name
         job.state_reasons = attrs.job_state_reasons
-        # Match job-impressions total; sheets count duplex output differently.
-        # Zero is valid progress, not an absent counter.
-        job.pages_done = (
-            attrs.impressions_completed if attrs.impressions_completed is not None
-            else attrs.media_sheets_completed
-        )
-        job.pages_total = attrs.impressions_total
+        def count(value):
+            return value if type(value) is int and value >= 0 else None
+
+        impressions = count(attrs.impressions_completed)
+        sheets = count(attrs.media_sheets_completed)
+        job.pages_done = impressions if impressions is not None else sheets
+        job.progress_unit = "impressions" if impressions is not None else "sheets" if sheets is not None else None
+        # Never compare sheets to impressions, or infer completed pages from
+        # the requested total. A zero counter is real progress.
+        job.pages_total = count(attrs.impressions_total) if impressions is not None else None
 
         if attrs.job_state in TERMINAL_JOB_STATES:
             self._mark_terminal(job, attrs.job_state_name, attrs.job_state_reasons)
@@ -272,12 +277,13 @@ class JobCoordinator:
             self._current is not None and self._current.job_id == job_id
         )
 
-    async def async_cancel(self, job_id: int) -> bool:
+    async def async_cancel(self, job_id: int, *, submitted_at: str | None = None) -> bool:
         job = self._jobs.get(job_id)
         if job is None or job.is_terminal() or self._stopped:
             return False
         async with job.operation_lock:
-            if job.is_terminal() or self._stopped:
+            if (job.is_terminal() or self._stopped or self._jobs.get(job_id) is not job
+                    or (submitted_at is not None and submitted_at != job.submitted_at.isoformat())):
                 return False
             try:
                 status = await self._client.cancel_job(job_id)

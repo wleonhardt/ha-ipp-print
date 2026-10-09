@@ -1,0 +1,270 @@
+// BEGIN DOCUMENT CARD CORE v2
+// Canonical source: ha-escl-scan/shared/card-core.js; synchronize with tools/sync-card-core.mjs.
+// Shared localization contract v1. Keep this helper identical in both cards.
+// Catalogs are bundled here: no build step, translation fetch or registration wait.
+class LocalizedMessage {
+  constructor(key, values) { this.key = key; this.values = values; }
+}
+function setText(element, value) {
+  if (element.textContent !== value) element.textContent = value;
+}
+function hasOwn(object, key) { return Object.prototype.hasOwnProperty.call(object, key); }
+let lastLanguageValue, lastLanguage = 'en';
+function cardLanguage(hass) {
+  const value = hass?.locale?.language || hass?.language || 'en';
+  if (value === lastLanguageValue) return lastLanguage;
+  lastLanguageValue = value;
+  try { lastLanguage = Intl.getCanonicalLocales(String(value).replace(/_/g, '-'))[0].toLowerCase(); }
+  catch { lastLanguage = 'en'; }
+  return lastLanguage;
+}
+function localize(key, values = {}, hass = document.querySelector('home-assistant')?.hass) {
+  const language = cardLanguage(hass);
+  for (const locale of new Set([language, language.split('-')[0], 'en'])) {
+    const catalog = hasOwn(CARD_TRANSLATIONS, locale) ? CARD_TRANSLATIONS[locale] : null;
+    if (!catalog || !hasOwn(catalog, key)) continue;
+    let message = catalog[key];
+    if (message && typeof message === 'object') {
+      const category = new Intl.PluralRules(locale).select(Number(values.count));
+      message = hasOwn(message, category) ? message[category] : message.other;
+    }
+    if (typeof message !== 'string') continue;
+    return message.replace(/\{(\w+)\}/g, (token, name) => {
+      if (!hasOwn(values, name)) return token;
+      const value = values[name];
+      return value instanceof LocalizedMessage ? localize(value.key, value.values, hass) : String(value);
+    });
+  }
+  return key;
+}
+function localizeElements(root, hass) {
+  for (const el of root.querySelectorAll('[data-i18n]')) {
+    el.textContent = localize(el.dataset.i18n, el._i18nValues || {}, hass);
+  }
+  for (const el of root.querySelectorAll('[data-i18n-label]')) {
+    const label = localize(el.dataset.i18nLabel, {}, hass);
+    el.setAttribute('aria-label', label);
+    if (el.hasAttribute('title')) el.title = label;
+  }
+}
+function translatedText(key, values = {}, hass) {
+  const span = document.createElement('span');
+  span.dataset.i18n = key; span._i18nValues = values;
+  span.textContent = localize(key, values, hass);
+  return span;
+}
+C.prototype._msg = function (key, values = {}) { return new LocalizedMessage(key, values); };
+C.prototype._t = function (key, values) { return localize(key, values, this._hass); };
+C.prototype._setMessage = function (key, values = {}, cls = '') {
+  this._setStatus(this._t(key, values), cls);
+  this._statusMessage = { key, values, cls };
+};
+C.prototype._applyLanguage = function () {
+  if (!this.shadowRoot) return false;
+  const language = cardLanguage(this._hass);
+  if (language === this._language) return false;
+  this._language = language;
+  localizeElements(this.shadowRoot, this._hass);
+  if (!this._config.title) this._titleEl.textContent = this._t('card.title');
+  if (this._statusMessage) {
+    const { key, values, cls } = this._statusMessage;
+    this._setMessage(key, values, cls);
+  }
+  return true;
+};
+// Checked connection is independent of a job's idle/running state.
+C.prototype._syncConnection = function () {
+  if (!this._connectionEl) return;
+  const offline = this._hass?.connected === false;
+  const snapshot = this._connectionSnapshot();
+  const checked = Date.parse(snapshot?.checked_at);
+  const next = Date.parse(snapshot?.next_check_at);
+  const fresh = Number.isFinite(checked) && Number.isFinite(next) && next + 30_000 > Date.now();
+  const state = fresh && ['reachable','unreachable'].includes(snapshot?.state) ? snapshot.state : 'unknown';
+  this._connectionEl.hidden = !offline && (!snapshot || state === 'reachable');
+  setText(this._connectionEl, this._t(offline ? 'connection.ha_lost' : 'connection.' + state));
+  let time = '';
+  if (Number.isFinite(checked)) {
+    try { time = new Date(checked).toLocaleString(cardLanguage(this._hass)); }
+    catch { time = new Date(checked).toISOString(); }
+  }
+  this._connectionEl.title = time ? this._t('connection.checked', { time }) : '';
+};
+// End shared localization helper.
+
+// Text stays text, including device-supplied errors. Long recovery guidance expands.
+function renderStatus(element, message, cls) {
+  const className = 'status' + (cls ? ' ' + cls : '');
+  if (typeof message === 'string' && element.textContent === message && element.className === className) return;
+  element.replaceChildren();
+  if (message instanceof Node) element.appendChild(message);
+  else {
+    const split = cls === 'err' && message.length > 100 ? message.indexOf('. ') : -1;
+    if (split > 0) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = message.slice(0, split + 2);
+      const recovery = document.createElement('div');
+      recovery.textContent = message.slice(split + 2);
+      details.append(summary, recovery);
+      element.appendChild(details);
+    } else element.textContent = message;
+  }
+  element.className = className;
+}
+
+const DOCUMENT_CARD_STYLES = `/* Shared document-card contract v1. Keep this base identical in both cards. */
+      :host { display: block; height: 100%; }
+      [hidden] { display: none !important; }
+      ha-card {
+        box-sizing: border-box; height: 100%; min-height: 200px; padding: 12px;
+        display: flex; flex-direction: column; gap: 8px;
+        color: var(--primary-text-color);
+      }
+      .header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .icon { --mdc-icon-size: 24px; width: 24px; height: 24px; color: var(--primary-color); flex: none; }
+      .title { font-size: 16px; font-weight: 500; line-height: 24px; overflow-wrap: anywhere; }
+      .status { color: var(--secondary-text-color); font-size: 14px; line-height: 20px; min-height: 40px; overflow-wrap: anywhere; }
+      .status.err { color: var(--error-color); }
+      .status.ok { color: var(--success-color, var(--primary-color)); }
+      .status a { color: inherit; text-underline-offset: 2px; display: inline-flex; align-items: center; min-height: 44px; }
+      .status summary { cursor: pointer; min-height: 44px; }
+      .status details > div { padding-top: 8px; }
+      .controls { min-height: 44px; }
+      .actions { margin-top: auto; }
+      button, select { font: inherit; font-size: 14px; }
+      button {
+        min-height: 44px; padding: 8px 12px; border: 0;
+        border-radius: var(--ha-card-border-radius, 12px);
+        background: var(--secondary-background-color); color: var(--primary-text-color);
+        cursor: pointer; line-height: 20px; box-sizing: border-box;
+      }
+      button:disabled { opacity: .5; cursor: default; }
+      button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible, a:focus-visible {
+        outline: 2px solid var(--primary-color); outline-offset: 2px;
+      }
+      .primary, .cancel { width: 100%; font-weight: 500; }
+      .cancel { display: none; color: var(--error-color); }
+      .cancel.show { display: block; }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+      .options-button { margin-inline-start: auto; flex: none; width: 44px; padding: 8px; }
+      .options { box-sizing: border-box; display: grid; gap: 12px; width: min(400px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; padding: 20px; border: 1px solid var(--divider-color); border-radius: var(--ha-card-border-radius, 12px); color: var(--primary-text-color); background: var(--card-background-color); }
+      .options:not([open]) { display: none; }
+      .options::backdrop { background: rgba(0, 0, 0, .45); }
+      .options h2 { font-size: 20px; margin: 0 0 4px; }
+      .option-field { display: grid; gap: 4px; min-width: 0; font-size: 14px; }
+      .option-field select, .option-field input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: var(--primary-text-color); background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
+      .options-help { color: var(--secondary-text-color); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+      .warning { color: var(--warning-color, var(--primary-text-color)); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+      /* End shared document-card base. */`;
+
+// Shared document-card option helpers. Keep this small block identical in both cards.
+function optionChoices(select, choices, value) {
+  const signature = JSON.stringify(choices);
+  if (select.dataset.choices !== signature) {
+    select.replaceChildren(...choices.map(([key, label, disabled]) => {
+      const option = document.createElement('option');
+      option.value = String(key); option.textContent = label; option.disabled = !!disabled;
+      return option;
+    }));
+    select.dataset.choices = signature;
+  }
+  select.value = String(value);
+}
+function addOptionField(panel, key, label, type = 'select') {
+  const wrapper = document.createElement('label');
+  wrapper.className = 'option-field';
+  const caption = translatedText(label, {}, panel._hass); wrapper.append(caption);
+  const input = document.createElement(type === 'select' ? 'select' : 'input');
+  input.dataset.option = key;
+  input.setAttribute('aria-describedby', 'options-help');
+  if (type !== 'select') input.type = type;
+  wrapper.append(input); panel.append(wrapper);
+  return input;
+}
+// Let HA own Back navigation, including the Android app's dialog handling.
+// The native panel stays in the card's shadow root to retain its theme/styles.
+const OPTIONS_TAG = `${TAG}-options-dialog`;
+if (!customElements.get(OPTIONS_TAG)) {
+  customElements.define(OPTIONS_TAG, class extends HTMLElement {
+    showDialog(params) {
+      this._open = true;
+      const card = params?.card;
+      this._card = card;
+      // Older HA history entries cannot serialize the live card reference.
+      if (!card) { this.closeDialog(); return; }
+      card._optionsDialog = this;
+      // HA may finish loading the host after navigation or a quick dismissal.
+      if (!card.isConnected || !card._optionsOpen) this.closeDialog();
+    }
+    closeDialog() {
+      if (!this._open) return true;
+      this._open = false;
+      const card = this._card;
+      this._card = null;
+      if (card) {
+        card._optionsDialog = null;
+        card._toggleOptions(false, card.isConnected);
+      }
+      this.dispatchEvent(new CustomEvent('dialog-closed', {
+        bubbles: true, composed: true, detail: { dialog: OPTIONS_TAG },
+      }));
+      return true;
+    }
+  });
+}
+C.prototype._toggleOptions = function (open, restoreFocus = true) {
+  if (!this._optionsPanel || (open && (!this.isConnected || this._optionsOpen))) return;
+  const wasOpen = this._optionsOpen;
+  this._optionsOpen = open;
+  this._optionsPanel.hidden = !open;
+  this._optionsButton.setAttribute('aria-expanded', String(open));
+  if (open) {
+    this._refreshOptions();
+    this._optionsButton.focus();
+    this.dispatchEvent(new CustomEvent('show-dialog', {
+      bubbles: true, composed: true,
+      detail: {
+        dialogTag: OPTIONS_TAG, dialogImport: () => Promise.resolve(),
+        dialogParams: { card: this },
+      },
+    }));
+    if (!this._optionsPanel.open) this._optionsPanel.showModal?.();
+    this._optionsPanel.querySelector('h2')?.focus();
+  } else {
+    this._optionsPanel.close?.();
+    this._optionsDialog?.closeDialog();
+    if (wasOpen && restoreFocus && this.isConnected) this._optionsButton.focus();
+  }
+};
+C.prototype._createOptionsPanel = function () {
+  this._optionsButton = this.shadowRoot.querySelector('.options-button');
+  this._optionsButton[Symbol.for('HA focus target')] = true;
+  const panel = document.createElement('dialog');
+  panel._hass = this._hass;
+  panel.className = 'options'; panel.id = 'options'; panel.hidden = true;
+  panel.setAttribute('aria-labelledby', 'options-heading');
+  const heading = document.createElement('h2'); heading.id = 'options-heading'; heading.tabIndex = -1; heading.autofocus = true;
+  heading.dataset.i18n = 'dialog.title'; heading.textContent = this._t('dialog.title');
+  panel.append(heading); this.shadowRoot.append(panel);
+  panel.addEventListener('cancel', event => { event.preventDefault(); this._toggleOptions(false); });
+  // Native dismissals can close the panel without going through our buttons.
+  panel.addEventListener('close', () => {
+    if (!panel.open) this._toggleOptions(false);
+  });
+  this._optionsPanel = panel;
+  this._optionsButton.addEventListener('click', () => this._toggleOptions(!this._optionsOpen));
+  panel.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this._toggleOptions(false); }
+  });
+  this._optionHelp = document.createElement('div');
+  this._optionHelp.id = 'options-help'; this._optionHelp.className = 'options-help'; this._optionHelp.setAttribute('aria-live', 'polite');
+  return panel;
+};
+C.prototype._finishOptionsPanel = function () {
+  this._optionsPanel.append(this._optionHelp);
+  const done = document.createElement('button'); done.type = 'button'; done.dataset.i18n = 'action.done'; done.textContent = this._t('action.done');
+  done.addEventListener('click', () => this._toggleOptions(false));
+  this._optionsPanel.append(done);
+};
+// END DOCUMENT CARD CORE v2

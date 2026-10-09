@@ -695,6 +695,18 @@ class PrinterClient:
                 self._version = b"\x01\x01"
         return raw
 
+    async def get_connection_status(self) -> None:
+        """Probe this queue's IPP endpoint without submitting or reading large capabilities."""
+        request = build_get_printer_attrs(
+            printer_uri=self._uri, user=self._user,
+            requested=(b"printer-state", b"printer-is-accepting-jobs"),
+        )
+        response = decode_response(await self._probe(request))
+        if response.status not in (0, 1, 2):
+            raise IppError("printer status request rejected")
+        # A well-formed successful IPP reply proves reachability even when a
+        # vendor omits the optional status fields. Stopped does not mean offline.
+
     async def get_printer_attrs(
         self, document_format: str | None = None, *, fresh: bool = False,
     ) -> PrinterInfo:

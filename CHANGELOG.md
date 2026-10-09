@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.9.0] - 2026-10-09
+
+### Added
+- A native Connection binary sensor per device, independent of job state, with
+  last-check/last-success timestamps. Read-only protocol checks run once a minute,
+  back off to five minutes after failures, and stop cleanly on unload.
+- Shared, versioned presentation core for both document cards: localization,
+  Options dialogs, base styles and expandable error guidance. CI detects drift;
+  each integration still ships one complete card asset without a build step.
+
+### Changed
+- Cards explain stale/failed device checks separately from job outcomes and
+  disable device actions while disconnected from Home Assistant.
+
+### Fixed
+- Follow Home Assistant's pushed job state from first mount, including other
+  cards and service submissions, without redundant per-card subscriptions.
+  Refresh/reconnect restores current tracking without resubmitting documents.
+- Freeze the submitting/active printer and ignore stale replies using sensor,
+  job number, submission time and request generation. Keep staged files local.
+- Distinguish sheets from impressions; retain zero progress and never use a
+  requested total as proof of completed pages. Lost tracking reports an unknown
+  outcome with queue-check guidance rather than falsely claiming failure.
+- Optional submission identity on cancellation prevents stale queue-ID reuse
+  from canceling a newer tracked job. Existing cancellation clients still work.
+
 ## [0.8.0] - 2026-10-08
 
 ### Added

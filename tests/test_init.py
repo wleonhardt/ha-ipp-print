@@ -202,3 +202,25 @@ async def test_unknown_outcome_sensor_preserves_job_attributes(hass):
     assert state.state == "unknown"
     assert state.attributes["job_id"] == 7
     assert state.attributes["state_reasons"] == "job-outcome-unknown"
+
+
+async def test_connection_sensor_and_job_metadata_share_checked_state(hass, printer_status):
+    entry = await _setup(hass)
+    data = hass.data[DOMAIN][entry.entry_id]
+    monitor = data["connection"]
+    await monitor.async_check()
+    await hass.async_block_till_done()
+    state = hass.states.get("binary_sensor.test_printer_connection")
+    assert state.state == "on"
+    job = hass.states.get("sensor.test_printer_current_job")
+    assert job.state == "idle"
+    assert job.attributes["device_connection"]["checked_at"] == state.attributes["checked_at"]
+    printer_status.side_effect = OSError("offline")
+    monitor._due = 0
+    await monitor.async_check()
+    await hass.async_block_till_done()
+    assert hass.states.get("binary_sensor.test_printer_connection").state == "off"
+    assert hass.states.get("sensor.test_printer_current_job").state == "idle"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert monitor.closed
+    assert monitor._task is None

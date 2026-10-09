@@ -55,12 +55,13 @@ from .const import (
 )
 from .capability_cache import CapabilityCache
 from .capabilities import capability_snapshot, validate_copies
+from .connection import DeviceConnection
 from .coordinator import JobCoordinator
 from .printer import SIDES, IppError, IppHttpError, PrinterClient, media_dimensions
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["sensor", "binary_sensor"]
 
 _CARD_FILE = Path(__file__).parent / "static" / CARD_FILENAME
 
@@ -133,6 +134,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         relaxed_ciphers=data.get(CONF_RELAXED_CIPHERS, False),
     )
     coordinator = JobCoordinator(hass, client, entry.entry_id)
+    connection = DeviceConnection(hass, client.get_connection_status, DOMAIN)
     capability_cache = CapabilityCache(lambda: client.get_printer_attrs())
     platform_setup_started = False
 
@@ -146,6 +148,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN][entry.entry_id] = {
             "client": client,
             "coordinator": coordinator,
+            "connection": connection,
             "printer_info": printer_info,
             "capability_cache": capability_cache,
         }
@@ -188,6 +191,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         async def _stop(_event) -> None:
+            await connection.async_close()
             await capability_cache.async_close()
             await coordinator.async_shutdown()
             await client.async_close()
@@ -196,6 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Reload entry when options change.
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        connection.start()
         return True
 
     except BaseException:
@@ -205,6 +210,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception:
                 _LOGGER.exception("failed to clean up platforms after setup failure")
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        await connection.async_close()
         await capability_cache.async_close()
         await coordinator.async_shutdown()
         await client.async_close()
@@ -218,6 +224,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if data:
             # Stop the poll task and release pooled printer connections so a
             # reload can't leave the old coordinator polling the old config.
+            if connection := data.get("connection"):
+                await connection.async_close()
             await data["capability_cache"].async_close()
             for cache in list(data.get("format_caches", {}).values()):
                 await cache.async_close()
@@ -499,7 +507,7 @@ async def _submit(
         )
 
     try:
-        coordinator.track(
+        tracked = coordinator.track(
             job_id=result.job_id, filename=filename, bytes_sent=len(document),
             warning=result.warning or validation_warning,
             requested_settings={key: value for key, value in options.items() if value is not None},
@@ -513,6 +521,7 @@ async def _submit(
         "filename": filename,
         "bytes": len(document),
         "job_id": result.job_id,
+        "submitted_at": tracked.submitted_at.isoformat(),
         "state": result.job_state_name,
         "warning": result.warning or validation_warning,
         "unsupported_attributes": list(result.unsupported_attributes),
@@ -760,6 +769,9 @@ class CancelView(HomeAssistantView):
             return self.json_message(
                 "missing or invalid 'job_id'", status_code=400
             )
+        submitted_at = data.get("submitted_at")
+        if submitted_at is not None and (not isinstance(submitted_at, str) or not 1 <= len(submitted_at) <= 64):
+            return self.json_message("invalid submitted_at", status_code=400)
         entity_id = data.get("entity_id")
         if entity_id is not None and not isinstance(entity_id, str):
             return self.json_message("invalid 'entity_id'", status_code=400)
@@ -774,7 +786,7 @@ class CancelView(HomeAssistantView):
         # not arbitrary printer-side job ids.
         if not coordinator.knows(job_id):
             return self.json_message("unknown job_id", status_code=404)
-        ok = await coordinator.async_cancel(job_id)
+        ok = await coordinator.async_cancel(job_id, submitted_at=submitted_at) if submitted_at is not None else await coordinator.async_cancel(job_id)
         if not ok:
             return self.json_message("printer refused cancel", status_code=502)
         return self.json({"ok": True, "job_id": job_id})

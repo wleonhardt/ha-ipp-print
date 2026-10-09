@@ -82,7 +82,7 @@ async def test_full_lifecycle_to_completed(hass):
     assert not coord._jobs
 
 
-async def test_unreachable_printer_gives_up_as_aborted(hass, monkeypatch):
+async def test_unreachable_printer_gives_up_as_unknown(hass, monkeypatch):
     monkeypatch.setattr(coord_mod, "MAX_POLL_FAILURES", 3)
     client = FakeClient([OSError("no route to host")])
     coord = JobCoordinator(hass, client)
@@ -91,7 +91,7 @@ async def test_unreachable_printer_gives_up_as_aborted(hass, monkeypatch):
     coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
     await _wait_for(lambda: len(completed) == 1)
 
-    assert completed[0].data["state"] == "aborted"
+    assert completed[0].data["state"] == "unknown"
     assert completed[0].data["state_reasons"] == "printer-unreachable"
     # Poll loop must terminate rather than spin forever.
     await _wait_for(lambda: coord._poll_task.done())
@@ -140,7 +140,7 @@ async def test_attrs_missing_eventually_gives_up(hass):
     completed = async_capture_events(hass, coord_mod.EVENT_JOB_COMPLETED)
     coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
     await _wait_for(lambda: len(completed) == 1)
-    assert completed[0].data["state"] == "aborted"
+    assert completed[0].data["state"] == "unknown"
     assert client.calls == coord_mod.MAX_POLL_FAILURES
 
 
@@ -182,7 +182,7 @@ async def test_wrong_job_response_cannot_complete_tracked_job(hass, monkeypatch)
     coord = JobCoordinator(hass, FakeClient([_attrs(9, job_id=99)]))
     job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
     await _wait_for(job.is_terminal)
-    assert job.state == "aborted"
+    assert job.state == "unknown"
     await coord.async_shutdown()
 
 
@@ -248,4 +248,29 @@ async def test_terminal_job_cannot_be_cancelled(hass):
     await _wait_for(job.is_terminal)
     assert not await coord.async_cancel(7)
     assert not client.cancelled
+    await coord.async_shutdown()
+
+
+async def test_sheet_fallback_never_uses_impression_total(hass):
+    coord = JobCoordinator(hass, FakeClient([_attrs(5)]))
+    job = coord.track(job_id=7, filename="x.pdf", bytes_sent=10)
+    attrs = _attrs(5, done=None, total=4)
+    attrs.media_sheets_completed = 1
+    coord._apply_attrs(job, attrs)
+    assert (job.pages_done, job.pages_total, job.progress_unit) == (1, None, "sheets")
+    attrs.media_sheets_completed = -1
+    coord._apply_attrs(job, attrs)
+    assert job.pages_done is None
+    await coord.async_shutdown()
+
+
+async def test_cancel_rejects_old_submission_for_reused_job_id(hass):
+    client = FakeClient([_attrs(5)])
+    coord = JobCoordinator(hass, client)
+    old = coord.track(job_id=7, filename="old.pdf", bytes_sent=10)
+    current = coord.track(job_id=7, filename="new.pdf", bytes_sent=10)
+    assert not await coord.async_cancel(7, submitted_at=old.submitted_at.isoformat())
+    assert not client.cancelled
+    assert await coord.async_cancel(7, submitted_at=current.submitted_at.isoformat())
+    assert client.cancelled == [7]
     await coord.async_shutdown()

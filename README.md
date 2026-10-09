@@ -156,6 +156,25 @@ render printer languages: upload support requires an explicit advertised MIME ty
 See the [compatibility and bridge guide](docs/compatibility.md) for optional CUPS,
 Printer Application, AirSane and ipp-usb routes and evidence levels.
 
+## Connection and recovery
+
+The integration adds a native **Connection** binary sensor to its device. It is
+unknown until the first check, connected when the protocol answers successfully,
+and disconnected when it cannot be reached. This does not promise paper, ink,
+or readiness: a stopped printer may still be reachable. Job `idle` is separate.
+Checks run every 60 seconds, back off to at most five minutes after failures, and
+have a ten-second deadline. No test document or scan is created by these checks.
+The job sensor also exposes `device_connection` with `state`, `checked_at`,
+`last_success_at` and `next_check_at`; the card marks stale evidence as unconfirmed.
+Use the native sensor in a Tile card for a dashboard connection summary.
+
+The cards recover current integration-tracked jobs from Home Assistant state
+when mounted or reconnected. They disable actions during a lost HA connection,
+keep the active device fixed, and never automatically replay a request. A print
+file staged in one card remains local to that card. Tracking is still in memory:
+restarting HA or reloading the integration does not recover past jobs. Durable
+scan results and activity history are a later phase.
+
 ## Sensor + events
 
 `sensor.<printer>_current_job` — one per configured printer, named after the
@@ -167,7 +186,8 @@ device (installs from before 0.4.0 keep `sensor.printer_current_job`).
 | attributes.job_id | IPP-assigned integer |
 | attributes.filename | Submitted filename |
 | attributes.pages_done | `job-impressions-completed` (or `job-media-sheets-completed` fallback) |
-| attributes.pages_total | `job-impressions` if the printer reports it |
+| attributes.pages_total | `job-impressions` only when completed impressions are also reported |
+| attributes.progress_unit | `impressions`, `sheets`, or null if no completed counter exists |
 | attributes.state_reasons | The printer's IPP `job-state-reasons` |
 | attributes.submitted_at / finished_at | ISO timestamps |
 
@@ -178,12 +198,11 @@ Bus events you can trigger automations from:
 
 Both carry the full job dict plus `config_entry_id` as `event.data`, so
 automations can distinguish printers with the same job ID. `unknown` means
-the printer purged a job before its final outcome could be observed; it is
+the printer purged a job or stopped answering before its final outcome could be observed; it is
 not proof of successful printing. The sensor mirrors the latest submitted
-job; when another submission replaces it, the card explains that live
-progress for the previous job is no longer available. Bus events continue
+job; when another submission replaces it, the card follows that newer job. Bus events continue
 for every tracked job. Missing or malformed job attributes are
-retried and eventually reported as `aborted` / `printer-unreachable`.
+retried and eventually reported as `unknown` / `printer-unreachable`.
 A submission timeout or invalid printer response can occur after the printer
 has accepted the document. Check the printer queue before retrying to avoid
 duplicate output. In-memory tracking is reset when the integration reloads
@@ -270,6 +289,10 @@ qualities, defaults and the queried format. Routine requests intentionally avoid
 `media-col-database`, which can be enormous on otherwise working printers.
 A submit failure includes `job_may_exist`: false confirms a rejection before any
 possible accepted job; true means the user must check the queue before retrying.
+
+The print response includes `submitted_at`. Cancellation may send this value
+alongside `job_id` and `entity_id` to reject a reused queue ID from an older job.
+Omitting it preserves the existing cancellation behavior.
 
 ## REST API
 

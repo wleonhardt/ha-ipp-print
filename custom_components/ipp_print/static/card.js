@@ -75,10 +75,10 @@ const CARD_TRANSLATIONS = {
     "status.submitted_untracked": "Job submitted (progress unavailable)",
     "status.queued": "Queued for printer…",
     "status.canceled": "Print canceled",
-    "status.unknown": "Print outcome unknown (printer removed job)",
+    "status.unknown": "Print outcome unknown. Check the printer queue before printing again.",
     "status.other_job": "Job submitted (printer is tracking another job)",
-    "status.no_updates": "Job submitted (no further updates)",
-    "status.sensor_unavailable": "Job submitted (printer sensor unavailable)",
+    "status.no_updates": "Print status unavailable. Check the printer queue before printing again.",
+    "status.sensor_unavailable": "Printer job status unavailable. Check the queue before printing again.",
     "error.no_file": "Choose a file first.",
     "error.file_size": "File exceeds the 50 MiB limit.",
     "error.file_type": "Pick a PDF, JPEG, or PNG file.",
@@ -146,11 +146,23 @@ const CARD_TRANSLATIONS = {
     "paper.dimensions": "{name} ({width} × {height} {unit})",
     "help.next_job": "Settings apply to the next print.{loaded}",
     "help.loaded": " Loaded: {paper}.",
-    "error.copies_range": "Enter a copy count from 1 to {max}."
+    "error.copies_range": "Enter a copy count from 1 to {max}.",
+    "status.sheet": " sheet {count}",
+    "status.complete_sheets": {
+      "one": "Print complete ✓ ({count} sheet)",
+      "other": "Print complete ✓ ({count} sheets)"
+    },
+    "connection.ha_lost": "Home Assistant disconnected. Reconnecting…",
+    "connection.reachable": "Device reachable",
+    "connection.unreachable": "Cannot reach this device. Check its power and connection.",
+    "connection.unknown": "Device connection has not been confirmed recently.",
+    "connection.checked": "Last checked: {time}"
   }
 };
 // END ENGLISH CATALOG
 
+// BEGIN DOCUMENT CARD CORE v2
+// Canonical source: ha-escl-scan/shared/card-core.js; synchronize with tools/sync-card-core.mjs.
 // Shared localization contract v1. Keep this helper identical in both cards.
 // Catalogs are bundled here: no build step, translation fetch or registration wait.
 class LocalizedMessage {
@@ -223,44 +235,48 @@ C.prototype._applyLanguage = function () {
   }
   return true;
 };
+// Checked connection is independent of a job's idle/running state.
+C.prototype._syncConnection = function () {
+  if (!this._connectionEl) return;
+  const offline = this._hass?.connected === false;
+  const snapshot = this._connectionSnapshot();
+  const checked = Date.parse(snapshot?.checked_at);
+  const next = Date.parse(snapshot?.next_check_at);
+  const fresh = Number.isFinite(checked) && Number.isFinite(next) && next + 30_000 > Date.now();
+  const state = fresh && ['reachable','unreachable'].includes(snapshot?.state) ? snapshot.state : 'unknown';
+  this._connectionEl.hidden = !offline && (!snapshot || state === 'reachable');
+  setText(this._connectionEl, this._t(offline ? 'connection.ha_lost' : 'connection.' + state));
+  let time = '';
+  if (Number.isFinite(checked)) {
+    try { time = new Date(checked).toLocaleString(cardLanguage(this._hass)); }
+    catch { time = new Date(checked).toISOString(); }
+  }
+  this._connectionEl.title = time ? this._t('connection.checked', { time }) : '';
+};
 // End shared localization helper.
 
-
-C.getStubConfig = function (hass) { return { title: localize('card.title', {}, hass) }; };
-
-C.prototype.setConfig = function (config) {
-  if (config?.copies !== undefined && (!Number.isInteger(config.copies) || config.copies < 1 || config.copies > 99)) throw new Error(this._t('config.copies'));
-  for (const key of ['duplex','duplex_in_options']) if (config?.[key] !== undefined && typeof config[key] !== 'boolean') throw new Error(this._t('config.boolean', { field: key }));
-  if (config?.binding !== undefined && !['two-sided-long-edge','two-sided-short-edge'].includes(config.binding)) throw new Error(this._t('config.binding'));
-  const previousConfig = this._config;
-  const previousEntity = this._config?.entity;
-  this._config = Object.assign({ copies: 1, duplex: false, binding: 'two-sided-long-edge' }, config || {});
-  this._settings ||= { copies: this._config.copies, binding: this._config.binding, media: '', media_source: '', color_mode: '', quality: '' };
-  for (const key of ['copies','binding','duplex']) {
-    if (previousConfig?.[key] !== this._config[key]) (this._pendingSettings ||= {})[key] = this._config[key];
+// Text stays text, including device-supplied errors. Long recovery guidance expands.
+function renderStatus(element, message, cls) {
+  const className = 'status' + (cls ? ' ' + cls : '');
+  if (typeof message === 'string' && element.textContent === message && element.className === className) return;
+  element.replaceChildren();
+  if (message instanceof Node) element.appendChild(message);
+  else {
+    const split = cls === 'err' && message.length > 100 ? message.indexOf('. ') : -1;
+    if (split > 0) {
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = message.slice(0, split + 2);
+      const recovery = document.createElement('div');
+      recovery.textContent = message.slice(split + 2);
+      details.append(summary, recovery);
+      element.appendChild(details);
+    } else element.textContent = message;
   }
-  if (previousEntity !== this._config.entity) this._pendingTargetReset = true;
-  this._render();
-  // _render is one-shot; apply config changes (card editor) directly.
-  if (this._titleEl) this._titleEl.textContent = this._config.title || this._t('card.title');
-  this._syncControls();
-};
+  element.className = className;
+}
 
-// hass is set every state update; keep the latest reference for the token.
-Object.defineProperty(C.prototype, 'hass', {
-  set(hass) { this._hass = hass; this._syncControls(); this._refreshOptions(); },
-  configurable: true,
-});
-
-C.prototype.getCardSize = function () { return 3; };
-C.prototype.getGridOptions = function () { return { columns: 6, rows: 4, min_columns: 6, min_rows: 4 }; };
-
-C.prototype._render = function () {
-  if (this._rendered) return;
-  const root = this.attachShadow({ mode: 'open' });
-  root.innerHTML = `
-    <style>
-      /* Shared document-card contract v1. Keep this base identical in both cards. */
+const DOCUMENT_CARD_STYLES = `/* Shared document-card contract v1. Keep this base identical in both cards. */
       :host { display: block; height: 100%; }
       [hidden] { display: none !important; }
       ha-card {
@@ -303,7 +319,156 @@ C.prototype._render = function () {
       .option-field select, .option-field input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: var(--primary-text-color); background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
       .options-help { color: var(--secondary-text-color); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
       .warning { color: var(--warning-color, var(--primary-text-color)); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
-      /* End shared document-card base. */
+      /* End shared document-card base. */`;
+
+// Shared document-card option helpers. Keep this small block identical in both cards.
+function optionChoices(select, choices, value) {
+  const signature = JSON.stringify(choices);
+  if (select.dataset.choices !== signature) {
+    select.replaceChildren(...choices.map(([key, label, disabled]) => {
+      const option = document.createElement('option');
+      option.value = String(key); option.textContent = label; option.disabled = !!disabled;
+      return option;
+    }));
+    select.dataset.choices = signature;
+  }
+  select.value = String(value);
+}
+function addOptionField(panel, key, label, type = 'select') {
+  const wrapper = document.createElement('label');
+  wrapper.className = 'option-field';
+  const caption = translatedText(label, {}, panel._hass); wrapper.append(caption);
+  const input = document.createElement(type === 'select' ? 'select' : 'input');
+  input.dataset.option = key;
+  input.setAttribute('aria-describedby', 'options-help');
+  if (type !== 'select') input.type = type;
+  wrapper.append(input); panel.append(wrapper);
+  return input;
+}
+// Let HA own Back navigation, including the Android app's dialog handling.
+// The native panel stays in the card's shadow root to retain its theme/styles.
+const OPTIONS_TAG = `${TAG}-options-dialog`;
+if (!customElements.get(OPTIONS_TAG)) {
+  customElements.define(OPTIONS_TAG, class extends HTMLElement {
+    showDialog(params) {
+      this._open = true;
+      const card = params?.card;
+      this._card = card;
+      // Older HA history entries cannot serialize the live card reference.
+      if (!card) { this.closeDialog(); return; }
+      card._optionsDialog = this;
+      // HA may finish loading the host after navigation or a quick dismissal.
+      if (!card.isConnected || !card._optionsOpen) this.closeDialog();
+    }
+    closeDialog() {
+      if (!this._open) return true;
+      this._open = false;
+      const card = this._card;
+      this._card = null;
+      if (card) {
+        card._optionsDialog = null;
+        card._toggleOptions(false, card.isConnected);
+      }
+      this.dispatchEvent(new CustomEvent('dialog-closed', {
+        bubbles: true, composed: true, detail: { dialog: OPTIONS_TAG },
+      }));
+      return true;
+    }
+  });
+}
+C.prototype._toggleOptions = function (open, restoreFocus = true) {
+  if (!this._optionsPanel || (open && (!this.isConnected || this._optionsOpen))) return;
+  const wasOpen = this._optionsOpen;
+  this._optionsOpen = open;
+  this._optionsPanel.hidden = !open;
+  this._optionsButton.setAttribute('aria-expanded', String(open));
+  if (open) {
+    this._refreshOptions();
+    this._optionsButton.focus();
+    this.dispatchEvent(new CustomEvent('show-dialog', {
+      bubbles: true, composed: true,
+      detail: {
+        dialogTag: OPTIONS_TAG, dialogImport: () => Promise.resolve(),
+        dialogParams: { card: this },
+      },
+    }));
+    if (!this._optionsPanel.open) this._optionsPanel.showModal?.();
+    this._optionsPanel.querySelector('h2')?.focus();
+  } else {
+    this._optionsPanel.close?.();
+    this._optionsDialog?.closeDialog();
+    if (wasOpen && restoreFocus && this.isConnected) this._optionsButton.focus();
+  }
+};
+C.prototype._createOptionsPanel = function () {
+  this._optionsButton = this.shadowRoot.querySelector('.options-button');
+  this._optionsButton[Symbol.for('HA focus target')] = true;
+  const panel = document.createElement('dialog');
+  panel._hass = this._hass;
+  panel.className = 'options'; panel.id = 'options'; panel.hidden = true;
+  panel.setAttribute('aria-labelledby', 'options-heading');
+  const heading = document.createElement('h2'); heading.id = 'options-heading'; heading.tabIndex = -1; heading.autofocus = true;
+  heading.dataset.i18n = 'dialog.title'; heading.textContent = this._t('dialog.title');
+  panel.append(heading); this.shadowRoot.append(panel);
+  panel.addEventListener('cancel', event => { event.preventDefault(); this._toggleOptions(false); });
+  // Native dismissals can close the panel without going through our buttons.
+  panel.addEventListener('close', () => {
+    if (!panel.open) this._toggleOptions(false);
+  });
+  this._optionsPanel = panel;
+  this._optionsButton.addEventListener('click', () => this._toggleOptions(!this._optionsOpen));
+  panel.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this._toggleOptions(false); }
+  });
+  this._optionHelp = document.createElement('div');
+  this._optionHelp.id = 'options-help'; this._optionHelp.className = 'options-help'; this._optionHelp.setAttribute('aria-live', 'polite');
+  return panel;
+};
+C.prototype._finishOptionsPanel = function () {
+  this._optionsPanel.append(this._optionHelp);
+  const done = document.createElement('button'); done.type = 'button'; done.dataset.i18n = 'action.done'; done.textContent = this._t('action.done');
+  done.addEventListener('click', () => this._toggleOptions(false));
+  this._optionsPanel.append(done);
+};
+// END DOCUMENT CARD CORE v2
+
+
+C.getStubConfig = function (hass) { return { title: localize('card.title', {}, hass) }; };
+
+C.prototype.setConfig = function (config) {
+  if (config?.copies !== undefined && (!Number.isInteger(config.copies) || config.copies < 1 || config.copies > 99)) throw new Error(this._t('config.copies'));
+  for (const key of ['duplex','duplex_in_options']) if (config?.[key] !== undefined && typeof config[key] !== 'boolean') throw new Error(this._t('config.boolean', { field: key }));
+  if (config?.binding !== undefined && !['two-sided-long-edge','two-sided-short-edge'].includes(config.binding)) throw new Error(this._t('config.binding'));
+  const previousConfig = this._config;
+  const previousEntity = this._config?.entity;
+  this._config = Object.assign({ copies: 1, duplex: false, binding: 'two-sided-long-edge' }, config || {});
+  this._settings ||= { copies: this._config.copies, binding: this._config.binding, media: '', media_source: '', color_mode: '', quality: '' };
+  for (const key of ['copies','binding','duplex']) {
+    if (previousConfig?.[key] !== this._config[key]) (this._pendingSettings ||= {})[key] = this._config[key];
+  }
+  if (previousEntity !== this._config.entity) this._pendingTargetReset = true;
+  this._render();
+  // _render is one-shot; apply config changes (card editor) directly.
+  if (this._titleEl) this._titleEl.textContent = this._config.title || this._t('card.title');
+  this._syncControls();
+  this._onHass();
+};
+
+// hass is set every state update; keep the latest reference for the token.
+Object.defineProperty(C.prototype, 'hass', {
+  set(hass) { this._hass = hass; this._onHass(); this._syncControls(); this._refreshOptions(); },
+  configurable: true,
+});
+
+C.prototype.getCardSize = function () { return 3; };
+C.prototype.getGridOptions = function () { return { columns: 6, rows: 4, min_columns: 6, min_rows: 4 }; };
+
+C.prototype._render = function () {
+  if (this._rendered) return;
+  const root = this.attachShadow({ mode: 'open' });
+  root.innerHTML = `
+    <style>
+      ${DOCUMENT_CARD_STYLES}
       .toggle { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; font-size: 14px; }
       .two-sided { appearance: none; position: relative; width: 36px; height: 22px; margin: 0; border-radius: 12px; background: var(--disabled-text-color); cursor: pointer; }
       .two-sided::before { content: ''; position: absolute; width: 16px; height: 16px; left: 3px; top: 3px; border-radius: 50%; background: var(--card-background-color); }
@@ -317,6 +482,7 @@ C.prototype._render = function () {
     <ha-card>
       <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div><button class="options-button" type="button" aria-expanded="false" aria-controls="options" data-i18n-label="dialog.title" title=""><ha-icon icon="mdi:tune" aria-hidden="true"></ha-icon></button></div>
       <div class="status" aria-live="polite" aria-atomic="true"></div>
+      <div class="connection warning" aria-live="polite" hidden></div>
       <div class="controls">
         <label class="toggle"><span data-i18n="action.two_sided"></span><input class="two-sided" type="checkbox" role="switch" data-i18n-label="accessibility.two_sided"></label>
         <div class="file-name"></div>
@@ -331,6 +497,7 @@ C.prototype._render = function () {
   this._card = root.querySelector('ha-card');
   this._titleEl = root.querySelector('.title');
   this._statusEl = root.querySelector('.status');
+  this._connectionEl = root.querySelector('.connection');
   this._cancelEl = root.querySelector('.cancel');
   this._primaryEl = root.querySelector('.primary');
   this._fileNameEl = root.querySelector('.file-name');
@@ -362,6 +529,9 @@ C.prototype._render = function () {
 C.prototype._syncControls = function () {
   if (!this._primaryEl) return;
   this._applyLanguage();
+  this._syncConnection();
+  const offline = this._hass?.connected === false;
+  this._cancelEl.disabled = offline;
   const locked = !!this._busy || this._activeJobId != null;
   if (!locked && this._pendingTargetReset) {
     this._pendingTargetReset = false;
@@ -373,14 +543,14 @@ C.prototype._syncControls = function () {
     if (duplex !== undefined) this._duplex = duplex;
     this._pendingSettings = null;
   }
-  this._primaryEl.disabled = locked;
+  this._primaryEl.disabled = locked || offline;
   this._primaryEl.hidden = !!this._showCancel;
   this._primaryEl.textContent = this._busy ? this._t('action.submitting')
     : this._activeJobId != null ? this._t('action.printing') : this._stagedFile ? this._t('action.print') : this._t('action.choose_file');
-  this._fileNameEl.textContent = this._stagedFile?.name || this._jobFilename || this._t('file.hint');
+  setText(this._fileNameEl, (this._activeJobId != null ? this._jobFilename : this._stagedFile?.name) || this._t('file.hint'));
   this._fileActionsEl.hidden = !this._stagedFile || locked;
   for (const button of this._fileActionsEl.querySelectorAll('button')) button.disabled = locked;
-  this._syncOptions(locked);
+  this._syncOptions(locked || offline);
   if (!locked && this._stagedFile && this._settingsError) this._primaryEl.disabled = true;
 };
 
@@ -437,6 +607,8 @@ C.prototype._authedFetch = function (path, init) {
 // one; several means the user must pick. Legacy installs keep
 // sensor.printer_current_job in the registry, so it is found the same way.
 C.prototype._sensorId = function () {
+  if (this._busy && this._submissionSensorId) return this._submissionSensorId;
+  if (this._activeJobId != null && this._activeSensorId) return this._activeSensorId;
   if (this._selectedEntity) return this._selectedEntity;
   if (this._config?.entity) return this._config.entity;
   const hass = this._getHass();
@@ -453,34 +625,28 @@ C.prototype._sensorId = function () {
   return null;
 };
 
+C.prototype._jobToken = function () {
+  return JSON.stringify([this._activeSensorId, this._activeJobId, this._activeSubmittedAt, this._progressGeneration]);
+};
 C.prototype._cancelJob = async function () {
-  if (this._activeJobId == null) return;
-  const jobId = this._activeJobId;
-  const generation = this._progressGeneration;
-  if (this._cancelPending?.jobId === jobId && this._cancelPending?.generation === generation) return;
-  const pending = { jobId, generation };
+  if (this._activeJobId == null || this._hass?.connected === false) return;
+  const token = this._jobToken();
+  if (this._cancelPending?.token === token) return;
+  const pending = { token };
   this._cancelPending = pending;
+  const current = () => this.isConnected && this._jobToken() === token;
+  const request = { job_id: this._activeJobId, entity_id: this._activeSensorId };
+  if (this._activeSubmittedAt) request.submitted_at = this._activeSubmittedAt;
   try {
     const r = await this._authedFetch('/api/ipp_print/cancel', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        job_id: jobId, entity_id: this._activeSensorId,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
     });
-    if (this._activeJobId !== jobId || this._progressGeneration !== generation) return;
-    if (!r.ok) {
-      const body = await r.text();
-      this._setMessage('status.cancel_failed', { error: body.slice(0, 80) }, 'err');
-      return;
-    }
-    this._setMessage('action.canceling');
-    // The coordinator's next poll will observe IPP terminal state and the
-    // sensor subscription will overwrite this with "Print canceled".
+    const body = r.ok ? '' : await r.text();
+    if (!current()) return;
+    if (!r.ok) this._setMessage('status.cancel_failed', { error: body.slice(0, 80) }, 'err');
+    else this._setMessage('action.canceling');
   } catch (err) {
-    if (this._activeJobId === jobId && this._progressGeneration === generation) {
-      this._setMessage('status.cancel_failed', { error: err?.message || err }, 'err');
-    }
+    if (current()) this._setMessage('status.cancel_failed', { error: err?.message || err }, 'err');
   } finally {
     if (this._cancelPending === pending) this._cancelPending = null;
   }
@@ -496,8 +662,7 @@ C.prototype._setCancelVisible = function (visible) {
 C.prototype._setStatus = function (text, cls = '') {
   const key = this._stagedFile ? 'status.ready' : 'status.choose';
   this._statusMessage = text ? null : { key, values: {}, cls };
-  setText(this._statusEl, text || this._t(key));
-  this._statusEl.className = 'status' + (cls ? ' ' + cls : '');
+  renderStatus(this._statusEl, text || this._t(key), cls);
 };
 
 C.prototype._pick = function () {
@@ -534,7 +699,7 @@ C.prototype._pick = function () {
 };
 
 C.prototype._upload = async function (file) {
-  if (this._busy || this._activeJobId != null) return;
+  if (this._busy || this._activeJobId != null || this._hass?.connected === false) return;
   const error = fileError(file, this._hass);
   if (error) { this._setStatus(error, 'err'); return; }
   let sensorId;
@@ -548,6 +713,9 @@ C.prototype._upload = async function (file) {
   this._activeJobId = null;
   this._setCancelVisible(false);
   this._busy = true;
+  this._submissionSensorId = sensorId;
+  const requestEpoch = this._requestEpoch || 0;
+  const isCurrent = () => this.isConnected && requestEpoch === (this._requestEpoch || 0);
   this._card.classList.add('busy');
   this._setMessage('status.uploading');
   this._cleanupPicker?.();
@@ -557,10 +725,10 @@ C.prototype._upload = async function (file) {
   if (sensorId) form.append('entity_id', sensorId);
   form.append('file', file, file.name);
 
-  let definitelyRejected = false;
+  let definitelyRejected = true;
   try {
     await this._refreshOptions();
-    if (!this.isConnected) { definitelyRejected = true; throw new Error(this._t('error.changed')); }
+    if (!isCurrent() || this._hass?.connected === false) { definitelyRejected = true; throw new Error(this._t('error.changed')); }
     const options = this._optionCapabilities?.body?.request_options || [];
     if (this._settingsError) { definitelyRejected = true; throw new Error(this._settingsError); }
     if ((!options.includes('copies') && this._settings.copies !== 1)
@@ -575,6 +743,7 @@ C.prototype._upload = async function (file) {
       if (this._settings[key] && options.includes(key)) form.append(key, String(this._settings[key]));
     }
     // Returns the printer-assigned job-id we then track via the job sensor.
+    definitelyRejected = false;
     const resp = await this._authedFetch('/api/ipp_print/print', {
       method: 'POST',
       body: form,
@@ -593,189 +762,149 @@ C.prototype._upload = async function (file) {
     if (!Number.isInteger(body?.job_id) || body.job_id <= 0) {
       throw new Error(this._t('error.response'));
     }
+    if (!isCurrent()) throw new Error(this._t('error.changed'));
     const name = typeof body.filename === 'string' && body.filename ? body.filename : file.name;
     this._stagedFile = null;
     this._jobFilename = name;
     this._activeJobId = body?.job_id ?? null;
     this._activeSensorId = sensorId;
+    this._activeSubmittedAt = typeof body.submitted_at === 'string' ? body.submitted_at : null;
+    this._awaitingSnapshot = true;
     this._setCancelVisible(true);
     this._setMessage('status.submitted', { name }, 'ok');
     this._warningEl.textContent = typeof body.warning === 'string' ? body.warning : '';
-    // Subscribe to the job sensor's updates for this job-id.
-    this._trackPrintProgress(sensorId).catch((e) => {
-      console.warn('[ipp-print] progress tracking error', e);
-      if (this._activeJobId === body?.job_id) {
-        this._setMessage('status.submitted_untracked', {}, 'ok');
-      }
-    });
+    this._lastJobSig = null;
   } catch (err) {
     if (!definitelyRejected) this._stagedFile = null;
     const guidance = definitelyRejected ? '' : this._msg('help.uncertain');
-    this._setMessage('status.submit_failed', { error: err?.message || err, guidance }, 'err');
+    if (this.isConnected) this._setMessage('status.submit_failed', { error: err?.message || err, guidance }, 'err');
   } finally {
     this._busy = false;
+    this._submissionSensorId = null;
     this._card.classList.remove('busy');
     this._syncControls();
+    this._onHass();
   }
 };
 
-// The integration's coordinator polls IPP every 1.5s and pushes per-job
-// state through the job sensor's state + attributes; the card follows it.
-const TERMINAL_STATES = new Set([
-  'canceled', 'aborted', 'completed', 'unknown',
-]);
-const ACTIVE_STATES = new Set([
-  'pending', 'pending-held', 'processing', 'processing-stopped',
-]);
+// HA already pushes the selected sensor to every card. No extra socket
+// subscription, connection listener or device poll belongs in the frontend.
+const TERMINAL_STATES = new Set(['canceled', 'aborted', 'completed', 'unknown']);
+const ACTIVE_STATES = new Set(['pending', 'pending-held', 'processing', 'processing-stopped']);
 
 C.prototype._stopProgress = function () {
   this._progressGeneration = (this._progressGeneration || 0) + 1;
   clearTimeout(this._progressSafety);
-  if (this._unsubProgress) {
-    try { this._unsubProgress(); } catch {}
-    this._unsubProgress = null;
-  }
+  this._progressSafety = null;
 };
-
 C.prototype._disconnected = function () {
   this._toggleOptions(false, false);
   this._cleanupPicker?.();
   this._optionsRequest?.abort();
+  this._requestEpoch = (this._requestEpoch || 0) + 1;
+  this._lastJobSig = null;
   this._stopProgress();
 };
-
 C.prototype._connected = function () {
-  if (this._activeJobId != null && this._activeSensorId) {
-    this._trackPrintProgress(this._activeSensorId).catch((err) => {
-      console.warn('[ipp-print] progress tracking error', err);
-    });
-  }
+  this._lastJobSig = null;
+  this._onHass();
 };
 
-C.prototype._trackPrintProgress = async function (sensorId) {
-  this._stopProgress();
-  const hass = this._getHass();
-  const ourJobId = this._activeJobId;
-  if (!this.isConnected || !hass?.connection || !sensorId || ourJobId == null) return;
+C.prototype._renderJobState = function (state, attrs) {
+  setText(this._warningEl, typeof attrs.warning === 'string' ? attrs.warning : '');
+  const validCount = value => Number.isInteger(value) && value >= 0 ? value : null;
+  const done = validCount(attrs.pages_done), total = validCount(attrs.pages_total);
+  if (state === 'processing') {
+    const progress = done != null
+      ? this._msg(attrs.progress_unit === 'sheets' ? 'status.sheet' : total > 0 ? 'status.page_total' : 'status.page', { count: done, total }) : '';
+    this._setMessage('status.printing', { progress });
+  } else if (state === 'pending' || state === 'pending-held') this._setMessage('status.queued');
+  else if (state === 'processing-stopped') {
+    this._setMessage('status.paused', { reason: attrs.state_reasons ? this._msg('status.reason', { reason: attrs.state_reasons }) : '' });
+  } else if (state === 'completed') {
+    // A requested total is not evidence of an actual completed page count.
+    this._setMessage(done != null ? (attrs.progress_unit === 'sheets' ? 'status.complete_sheets' : 'status.complete') : 'status.complete_unknown', { count: done }, 'ok');
+  } else if (state === 'canceled') this._setMessage('status.canceled', {}, 'err');
+  else if (state === 'aborted') this._setMessage('status.failed', { reason: attrs.state_reasons ? this._msg('status.reason', { reason: attrs.state_reasons }) : '' }, 'err');
+  else if (state === 'unknown') this._setMessage('status.unknown', {}, 'err');
+};
 
-  const generation = this._progressGeneration;
-  let stopped = false;
-  let unsubscribe = null;
-  let sawMatchingState = false;
-  const isCurrent = () => generation === this._progressGeneration && this.isConnected;
-  const stop = () => {
-    stopped = true;
-    if (unsubscribe) { try { unsubscribe(); } catch {} }
-    if (isCurrent()) {
-      this._unsubProgress = null;
-      clearTimeout(this._progressSafety);
+C.prototype._onHass = function () {
+  if (!this._rendered || !this.isConnected || !this._hass || this._busy || this._hass.connected === false) return;
+  let entity;
+  try { entity = this._sensorId(); } catch { return; }
+  const st = this._hass.states?.[entity], attrs = st?.attributes || {};
+  if (entity !== this._observedEntity) {
+    this._observedEntity = entity;
+    this._lastJobSig = null;
+    this._dismissedJobKey = null;
+    this._observedJobTime = null;
+    this._observedStateTime = null;
+    this._stopProgress();
+    this._setStatus('');
+    setText(this._warningEl, '');
+  }
+  // Ignore a delayed snapshot older than the one already shown for this device.
+  const stateTime = Date.parse(st?.last_updated);
+  const jobTime = Date.parse(attrs.submitted_at);
+  if ((Number.isFinite(stateTime) && this._observedStateTime != null && stateTime < this._observedStateTime)
+      || (Number.isFinite(jobTime) && this._observedJobTime != null && jobTime < this._observedJobTime)) return;
+  if (Number.isFinite(stateTime)) this._observedStateTime = stateTime;
+  if (Number.isFinite(jobTime)) this._observedJobTime = jobTime;
+  const validId = Number.isInteger(attrs.job_id) && attrs.job_id > 0;
+  const key = JSON.stringify([entity, attrs.job_id, attrs.submitted_at || null]);
+  if (this._awaitingSnapshot && this._activeJobId != null && (attrs.job_id !== this._activeJobId
+      || (this._activeSubmittedAt && attrs.submitted_at !== this._activeSubmittedAt))) {
+    const newer = this._activeSubmittedAt && attrs.submitted_at > this._activeSubmittedAt;
+    if (!newer && !['unknown','unavailable'].includes(st?.state)) {
+      if (!this._progressSafety) this._progressSafety = setTimeout(() => {
+        this._progressSafety = null;
+        this._awaitingSnapshot = false;
+        this._activeJobId = null;
+        this._jobFilename = null;
+        this._setMessage('status.no_updates', {}, 'err');
+        this._setCancelVisible(false);
+        this._lastJobSig = null;
+        this._onHass();
+      }, 90_000);
+      return;
+    }
+  }
+  const sig = JSON.stringify([key, st?.state, attrs.pages_done, attrs.pages_total, attrs.progress_unit, attrs.state_reasons, attrs.warning, attrs.filename]);
+  if (sig === this._lastJobSig) return;
+  this._lastJobSig = sig;
+  const active = validId && ACTIVE_STATES.has(st?.state);
+  const terminal = validId && TERMINAL_STATES.has(st?.state);
+  if (active || terminal) {
+    this._awaitingSnapshot = false;
+    if (key !== this._jobKey) { this._stopProgress(); this._jobKey = key; }
+    if (active) {
+      this._stopProgress();
+      this._activeJobId = attrs.job_id;
+      this._activeSensorId = entity;
+      this._activeSubmittedAt = attrs.submitted_at || null;
+      this._jobFilename = typeof attrs.filename === 'string' ? attrs.filename : null;
+      this._renderJobState(st.state, attrs);
+      this._setCancelVisible(true);
+    } else {
       this._activeJobId = null;
       this._jobFilename = null;
       this._setCancelVisible(false);
-    }
-  };
-  const render = (state, attrs) => {
-    if (typeof attrs?.warning === 'string') this._warningEl.textContent = attrs.warning;
-    const pagesDone = attrs?.pages_done;
-    const pagesTotal = attrs?.pages_total;
-    if (state === 'processing') {
-      const progress = pagesTotal && pagesDone != null
-        ? this._msg('status.page_total', { count: pagesDone, total: pagesTotal }) : pagesDone ? this._msg('status.page', { count: pagesDone }) : '';
-      this._setMessage('status.printing', { progress });
-    } else if (state === 'pending' || state === 'pending-held') {
-      this._setMessage('status.queued');
-    } else if (state === 'processing-stopped') {
-      this._setMessage('status.paused', { reason: attrs?.state_reasons ? this._msg('status.reason', { reason: attrs.state_reasons }) : '' });
-    } else if (state === 'completed') {
-      const pages = pagesDone ?? pagesTotal;
-      this._setMessage(pages ? 'status.complete' : 'status.complete_unknown', { count: pages }, 'ok');
-    } else if (state === 'canceled') {
-      this._setMessage('status.canceled', {}, 'err');
-    } else if (state === 'aborted') {
-      this._setMessage('status.failed', { reason: attrs?.state_reasons ? this._msg('status.reason', { reason: attrs.state_reasons }) : '' }, 'err');
-    } else if (state === 'unknown') {
-      this._setMessage('status.unknown', {}, 'err');
-    }
-    this._setCancelVisible(ACTIVE_STATES.has(state));
-  };
-
-  const initial = hass.states?.[sensorId];
-  const cur = {
-    state: initial?.state ?? null,
-    attributes: Object.assign({}, initial?.attributes || {}),
-  };
-  const onUpdate = () => {
-    if (stopped || !isCurrent()) return;
-    if (cur.attributes.job_id !== ourJobId) {
-      if (sawMatchingState) {
-        sawMatchingState = false;
-        this._setMessage('status.other_job', {}, 'ok');
-        this._setCancelVisible(false);
-        this._progressSafety = setTimeout(() => {
-          if (isCurrent() && !stopped) stop();
-        }, 90_000);
-      }
-      return;
-    }
-    sawMatchingState = true;
-    clearTimeout(this._progressSafety);
-    render(cur.state, cur.attributes);
-    if (TERMINAL_STATES.has(cur.state)) {
-      stop();
-      this._activeJobId = null;
-      this._progressSafety = setTimeout(() => {
-        if (isCurrent()) this._setStatus('');
+      if (this._dismissedJobKey === key) return;
+      this._renderJobState(st.state, attrs);
+      if (!this._progressSafety) this._progressSafety = setTimeout(() => {
+        this._progressSafety = null;
+        this._dismissedJobKey = key;
+        this._setStatus('');
       }, 10_000);
     }
-  };
-  onUpdate();
-  if (stopped) return;
-
-  // Limit the wait for the first matching snapshot. Once an active job is
-  // seen, keep listening until terminal state: real print jobs can take
-  // much longer than 90 seconds without changing their sensor attributes.
-  if (!sawMatchingState) {
-    this._progressSafety = setTimeout(() => {
-      if (!isCurrent() || stopped) return;
-      stop();
-      this._setMessage('status.no_updates', {}, 'ok');
-    }, 90_000);
-  }
-
-  try {
-    unsubscribe = await hass.connection.subscribeMessage((msg) => {
-      if (stopped || !isCurrent()) return;
-      if (msg?.r?.includes(sensorId)) {
-        stop();
-        this._setMessage('status.sensor_unavailable', {}, 'err');
-        return;
-      }
-      const add = msg?.a?.[sensorId];
-      if (add) {
-        cur.state = add.s;
-        cur.attributes = Object.assign({}, add.a || {});
-        onUpdate();
-        return;
-      }
-      const chg = msg?.c?.[sensorId];
-      if (!chg) return;
-      const plus = chg['+'] || {};
-      const minus = chg['-'] || {};
-      if (plus.s !== undefined) cur.state = plus.s;
-      if (plus.a) Object.assign(cur.attributes, plus.a);
-      for (const k of (minus.a || [])) delete cur.attributes[k];
-      onUpdate();
-    }, { type: 'subscribe_entities', entity_ids: [sensorId] });
-  } catch (err) {
-    if (isCurrent()) stop();
-    throw err;
-  }
-  // Initial subscription messages can arrive before the promise resolves.
-  // A terminal update, new upload, or disconnect must close that late handle.
-  if (stopped || !isCurrent()) {
-    try { unsubscribe(); } catch {}
-  } else {
-    this._unsubProgress = unsubscribe;
+  } else if (this._activeJobId != null) {
+    this._stopProgress();
+    this._awaitingSnapshot = false;
+    this._activeJobId = null;
+    this._jobFilename = null;
+    this._setMessage('status.sensor_unavailable', {}, 'err');
+    this._setCancelVisible(false);
   }
 };
 
@@ -892,115 +1021,7 @@ try {
   setTimeout(() => { try { observer.disconnect(); } catch {} }, 30_000);
 } catch {}
 
-// Shared document-card option helpers. Keep this small block identical in both cards.
-function optionChoices(select, choices, value) {
-  const signature = JSON.stringify(choices);
-  if (select.dataset.choices !== signature) {
-    select.replaceChildren(...choices.map(([key, label, disabled]) => {
-      const option = document.createElement('option');
-      option.value = String(key); option.textContent = label; option.disabled = !!disabled;
-      return option;
-    }));
-    select.dataset.choices = signature;
-  }
-  select.value = String(value);
-}
-function addOptionField(panel, key, label, type = 'select') {
-  const wrapper = document.createElement('label');
-  wrapper.className = 'option-field';
-  const caption = translatedText(label, {}, panel._hass); wrapper.append(caption);
-  const input = document.createElement(type === 'select' ? 'select' : 'input');
-  input.dataset.option = key;
-  input.setAttribute('aria-describedby', 'options-help');
-  if (type !== 'select') input.type = type;
-  wrapper.append(input); panel.append(wrapper);
-  return input;
-}
-// Let HA own Back navigation, including the Android app's dialog handling.
-// The native panel stays in the card's shadow root to retain its theme/styles.
-const OPTIONS_TAG = `${TAG}-options-dialog`;
-if (!customElements.get(OPTIONS_TAG)) {
-  customElements.define(OPTIONS_TAG, class extends HTMLElement {
-    showDialog(params) {
-      this._open = true;
-      const card = params?.card;
-      this._card = card;
-      // Older HA history entries cannot serialize the live card reference.
-      if (!card) { this.closeDialog(); return; }
-      card._optionsDialog = this;
-      // HA may finish loading the host after navigation or a quick dismissal.
-      if (!card.isConnected || !card._optionsOpen) this.closeDialog();
-    }
-    closeDialog() {
-      if (!this._open) return true;
-      this._open = false;
-      const card = this._card;
-      this._card = null;
-      if (card) {
-        card._optionsDialog = null;
-        card._toggleOptions(false, card.isConnected);
-      }
-      this.dispatchEvent(new CustomEvent('dialog-closed', {
-        bubbles: true, composed: true, detail: { dialog: OPTIONS_TAG },
-      }));
-      return true;
-    }
-  });
-}
-C.prototype._toggleOptions = function (open, restoreFocus = true) {
-  if (!this._optionsPanel || (open && (!this.isConnected || this._optionsOpen))) return;
-  const wasOpen = this._optionsOpen;
-  this._optionsOpen = open;
-  this._optionsPanel.hidden = !open;
-  this._optionsButton.setAttribute('aria-expanded', String(open));
-  if (open) {
-    this._refreshOptions();
-    this._optionsButton.focus();
-    this.dispatchEvent(new CustomEvent('show-dialog', {
-      bubbles: true, composed: true,
-      detail: {
-        dialogTag: OPTIONS_TAG, dialogImport: () => Promise.resolve(),
-        dialogParams: { card: this },
-      },
-    }));
-    if (!this._optionsPanel.open) this._optionsPanel.showModal?.();
-    this._optionsPanel.querySelector('h2')?.focus();
-  } else {
-    this._optionsPanel.close?.();
-    this._optionsDialog?.closeDialog();
-    if (wasOpen && restoreFocus && this.isConnected) this._optionsButton.focus();
-  }
-};
-C.prototype._createOptionsPanel = function () {
-  this._optionsButton = this.shadowRoot.querySelector('.options-button');
-  this._optionsButton[Symbol.for('HA focus target')] = true;
-  const panel = document.createElement('dialog');
-  panel._hass = this._hass;
-  panel.className = 'options'; panel.id = 'options'; panel.hidden = true;
-  panel.setAttribute('aria-labelledby', 'options-heading');
-  const heading = document.createElement('h2'); heading.id = 'options-heading'; heading.tabIndex = -1; heading.autofocus = true;
-  heading.dataset.i18n = 'dialog.title'; heading.textContent = this._t('dialog.title');
-  panel.append(heading); this.shadowRoot.append(panel);
-  panel.addEventListener('cancel', event => { event.preventDefault(); this._toggleOptions(false); });
-  // Native dismissals can close the panel without going through our buttons.
-  panel.addEventListener('close', () => {
-    if (!panel.open) this._toggleOptions(false);
-  });
-  this._optionsPanel = panel;
-  this._optionsButton.addEventListener('click', () => this._toggleOptions(!this._optionsOpen));
-  panel.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this._toggleOptions(false); }
-  });
-  this._optionHelp = document.createElement('div');
-  this._optionHelp.id = 'options-help'; this._optionHelp.className = 'options-help'; this._optionHelp.setAttribute('aria-live', 'polite');
-  return panel;
-};
-C.prototype._finishOptionsPanel = function () {
-  this._optionsPanel.append(this._optionHelp);
-  const done = document.createElement('button'); done.type = 'button'; done.dataset.i18n = 'action.done'; done.textContent = this._t('action.done');
-  done.addEventListener('click', () => this._toggleOptions(false));
-  this._optionsPanel.append(done);
-};
+
 
 // Display labels only: the original advertised keywords remain option values.
 function readableKeyword(value) {
@@ -1073,6 +1094,7 @@ C.prototype._installOptions = function () {
   this._finishOptionsPanel();
 };
 C.prototype._refreshOptions = function () {
+  if (this._hass?.connected === false) return Promise.resolve();
   let entity;
   try { entity = this._sensorId(); } catch { this._syncControls(); return Promise.resolve(); }
   if (!entity || !this.isConnected) return Promise.resolve();
@@ -1200,3 +1222,8 @@ if (!customElements.get(TAG + '-editor')) {
     }
   });
 }
+
+C.prototype._connectionSnapshot = function () {
+  let entity; try { entity = this._sensorId(); } catch { return null; }
+  return this._hass?.states?.[entity]?.attributes?.device_connection;
+};

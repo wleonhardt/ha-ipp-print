@@ -113,6 +113,13 @@ function mount(win, config = {}) {
   return el;
 }
 
+function push(el, hass, state, attributes = {}, id = SENSOR) {
+  hass.states = { ...hass.states };
+  if (state === null) delete hass.states[id];
+  else hass.states[id] = { entity_id: id, state, attributes };
+  el.hass = { ...hass };
+}
+
 const tick = () => new Promise((r) => setTimeout(r, 0));
 // jsdom's FormData insists on a real File.
 const file = (win, name, type) => new win.File(['x'], name, { type });
@@ -145,65 +152,34 @@ test('rejects files that are neither PDF nor image', async () => {
   assert.match(el.shadowRoot.querySelector('.status').textContent, /Pick a PDF, JPEG, or PNG/);
 });
 
-test('upload posts to the endpoint and follows the job via subscribe_entities', async () => {
-  const win = boot();
-  const el = mount(win, { entity: 'sensor.office_job' });
-  const { hass, calls } = makeHass(win, {
-    fetchImpl: async () => jsonResponse({ ok: true, filename: 'doc.pdf', job_id: 42, state: 'pending' }),
-  });
+test('upload and remote jobs follow HA state without extra subscriptions', async () => {
+  const win = boot(), el = mount(win, { entity: 'sensor.office_job' });
+  const { hass, calls } = makeHass(win, { fetchImpl: async () => jsonResponse({ job_id: 42, filename: 'doc.pdf' }) });
   el.hass = hass;
-
   await el._upload(file(win, 'doc.pdf', 'application/pdf'));
-  await tick();
-
   assert.equal(calls.fetch[0].url, '/api/ipp_print/print');
-  assert.equal(calls.fetch[0].init.method, 'POST');
-  // The followed sensor is also the printer target.
   assert.equal(calls.fetch[0].init.body.get('entity_id'), 'sensor.office_job');
   assert.equal(el._activeJobId, 42);
-  const status = el.shadowRoot.querySelector('.status');
-  assert.match(status.textContent, /Submitted ✓ doc\.pdf/);
-
-  // Non-admin-safe subscription, scoped to the configured entity.
-  assert.equal(calls.subscribe.length, 1);
-  const { cb, msg } = calls.subscribe[0];
-  assert.equal(msg.type, 'subscribe_entities');
-  assert.equal(JSON.stringify(msg.entity_ids), '["sensor.office_job"]');
-
-  // Full add → processing with page progress; cancel link visible.
-  cb({ a: { 'sensor.office_job': { s: 'processing', a: { job_id: 42, pages_done: 1, pages_total: 3 } } } });
-  assert.equal(status.textContent, 'Printing page 1/3…');
-  assert.ok(el.shadowRoot.querySelector('.cancel').classList.contains('show'));
-
-  // Attribute-only diff (state unchanged) still updates progress.
-  cb({ c: { 'sensor.office_job': { '+': { a: { pages_done: 2 } } } } });
-  assert.equal(status.textContent, 'Printing page 2/3…');
-
-  // A newer job supersedes the sensor; do not keep claiming ours is printing.
-  cb({ c: { 'sensor.office_job': { '+': { s: 'pending', a: { job_id: 99 } } } } });
-  assert.equal(status.textContent, 'Job submitted (printer is tracking another job)');
-
-  // Terminal state with an attribute removal → completion text, unsubscribed.
-  cb({ c: { 'sensor.office_job': { '+': { s: 'completed', a: { job_id: 42, pages_done: 3 } }, '-': { a: ['pages_total'] } } } });
-  assert.equal(status.textContent, 'Print complete ✓ (3 pages)');
-  assert.ok(status.classList.contains('ok'));
-  assert.equal(calls.unsubscribed, true);
-  assert.ok(!el.shadowRoot.querySelector('.cancel').classList.contains('show'));
+  assert.equal(calls.subscribe.length, 0);
+  push(el, hass, 'processing', { job_id: 42, pages_done: 0, pages_total: 3 }, 'sensor.office_job');
+  assert.equal(el._statusEl.textContent, 'Printing page 0/3…');
+  push(el, hass, 'processing', { job_id: 42, pages_done: 2, pages_total: 3 }, 'sensor.office_job');
+  assert.equal(el._statusEl.textContent, 'Printing page 2/3…');
+  push(el, hass, 'pending', { job_id: 99 }, 'sensor.office_job');
+  assert.equal(el._activeJobId, 99);
+  assert.equal(el._statusEl.textContent, 'Queued for printer…');
+  push(el, hass, 'completed', { job_id: 99, pages_done: 3 }, 'sensor.office_job');
+  assert.equal(el._statusEl.textContent, 'Print complete ✓ (3 pages)');
+  assert.equal(el._activeJobId, null);
+  assert.equal(el._fileNameEl.textContent, 'PDF or image');
 });
 
-test('aborted job shows the printer reason', async () => {
-  const win = boot();
-  const el = mount(win);
-  const { hass, calls } = makeHass(win, {
-    fetchImpl: async () => jsonResponse({ ok: true, filename: 'x.pdf', job_id: 7 }),
-  });
-  el.hass = hass;
-  await el._upload(file(win, 'x.pdf', 'application/pdf'));
-  await tick();
-  calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'aborted', a: { job_id: 7, state_reasons: 'printer-unreachable' } } } });
-  const status = el.shadowRoot.querySelector('.status');
-  assert.equal(status.textContent, 'Print failed: printer-unreachable');
-  assert.ok(status.classList.contains('err'));
+test('aborted job shows the device reason without submitting locally', async () => {
+  const win = boot(), el = mount(win);
+  const { hass, calls } = makeHass(win);
+  push(el, hass, 'aborted', { job_id: 7, state_reasons: 'job-canceled-at-device' });
+  assert.equal(el._statusEl.textContent, 'Print failed: job-canceled-at-device');
+  assert.equal(calls.fetch.length, 0);
 });
 
 test('server error message is surfaced', async () => {
@@ -263,7 +239,8 @@ test('discovers the only ipp_print sensor from the entity registry', async () =>
   await el._upload(file(win, 'a.pdf', 'application/pdf'));
   await tick();
   assert.equal(calls.fetch[0].init.body.get('entity_id'), 'sensor.hp_current_job');
-  assert.equal(JSON.stringify(calls.subscribe[0].msg.entity_ids), '["sensor.hp_current_job"]');
+  assert.equal(el._activeSensorId, 'sensor.hp_current_job');
+  assert.equal(calls.subscribe.length, 0);
 });
 
 test('legacy sensor.printer_current_job still works without a registry hit', async () => {
@@ -296,113 +273,78 @@ test('refuses to upload when several printers exist and no entity is set', async
   assert.ok(!el._busy);
 });
 
-test('disconnect closes a subscription that resolves late', async () => {
-  const win = boot();
-  const el = mount(win, { entity: SENSOR });
-  let resolveSubscribe;
-  let unsubscribed = 0;
-  el.hass = { states: {}, connection: {
-    subscribeMessage: () => new Promise((resolve) => { resolveSubscribe = resolve; }),
-  } };
-  el._activeJobId = 7;
-  const tracking = el._trackPrintProgress(SENSOR);
-  el.remove();
-  resolveSubscribe(() => { unsubscribed++; });
-  await tracking;
-  assert.equal(unsubscribed, 1);
-  assert.equal(el._unsubProgress, undefined);
-});
-
-test('terminal update before subscription resolution closes the late handle', async () => {
-  const win = boot();
-  const el = mount(win);
-  let unsubscribed = 0;
-  el.hass = { states: {}, connection: {
-    subscribeMessage: async (cb) => {
-      cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 7 } } } });
-      return () => { unsubscribed++; };
-    },
-  } };
-  el._activeJobId = 7;
-  await el._trackPrintProgress(SENSOR);
-  assert.equal(unsubscribed, 1);
-  assert.match(el._statusEl.textContent, /Print complete/);
-  assert.equal(el._activeJobId, null);
-});
-
-test('initial terminal snapshot needs no subscription', async () => {
-  const win = boot();
-  const el = mount(win);
-  const { hass, calls } = makeHass(win, {
-    states: { [SENSOR]: { state: 'completed', attributes: { job_id: 7 } } },
-  });
-  el.hass = hass;
-  el._activeJobId = 7;
-  el._jobFilename = 'finished.pdf';
-  await el._trackPrintProgress(SENSOR);
+test('reload adopts a running external job and never opens an extra subscription', async () => {
+  const win = boot(), el = mount(win);
+  const { hass, calls } = makeHass(win);
+  push(el, hass, 'processing', { job_id: 7, filename: 'external.pdf', pages_done: 1 });
+  assert.equal(el._activeJobId, 7);
+  assert.equal(el._fileNameEl.textContent, 'external.pdf');
+  const reloaded = mount(win); reloaded.hass = hass;
+  assert.equal(reloaded._activeJobId, 7);
+  assert.equal(reloaded._statusEl.textContent, el._statusEl.textContent);
   assert.equal(calls.subscribe.length, 0);
-  assert.match(el._statusEl.textContent, /Print complete/);
+  assert.equal(calls.fetch.length, 0);
+});
+
+test('a terminal pushed snapshot wins over a delayed accepted submission', async () => {
+  const win = boot(), el = mount(win);
+  let resolve;
+  const { hass } = makeHass(win, { fetchImpl: () => new Promise(r => { resolve = r; }) });
+  el.hass = hass;
+  const upload = el._upload(file(win, 'done.pdf', 'application/pdf')); await tick();
+  push(el, hass, 'completed', { job_id: 7, pages_done: 1 });
+  resolve(jsonResponse({ job_id: 7, filename: 'done.pdf' })); await upload;
+  assert.equal(el._activeJobId, null);
   assert.equal(el._fileNameEl.textContent, 'PDF or image');
+  assert.match(el._statusEl.textContent, /Print complete/);
 });
 
-test('active and paused jobs remain subscribed beyond the initial safety window', async () => {
-  const win = boot();
-  const el = mount(win);
+test('completion without an observed count does not invent printed pages', async () => {
+  const win = boot(), el = mount(win);
   const { hass, calls } = makeHass(win);
-  el.hass = hass;
-  el._activeJobId = 7;
-  const timers = new Map();
-  let nextTimer = 100000;
-  const realClearTimeout = win.clearTimeout.bind(win);
-  win.setTimeout = (cb, ms) => { const id = ++nextTimer; timers.set(id, { cb, ms }); return id; };
-  win.clearTimeout = (id) => {
-    if (!timers.delete(id)) realClearTimeout(id);
-  };
-  await el._trackPrintProgress(SENSOR);
-  assert.equal(timers.size, 1);
-  calls.subscribe[0].cb({ a: { [SENSOR]: {
-    s: 'processing-stopped', a: { job_id: 7, state_reasons: 'media-empty' },
-  } } });
+  push(el, hass, 'completed', { job_id: 7, pages_total: 12 });
+  assert.equal(el._statusEl.textContent, 'Print complete ✓');
+  assert.equal(calls.subscribe.length, 0);
+});
+
+test('active and paused jobs have no frontend expiry deadline', async () => {
+  const win = boot(), el = mount(win);
+  const { hass } = makeHass(win);
+  push(el, hass, 'processing', { job_id: 7 });
+  assert.equal(el._progressSafety, null);
+  push(el, hass, 'processing-stopped', { job_id: 7, state_reasons: 'media-empty' });
   assert.equal(el._statusEl.textContent, 'Printing paused: media-empty');
+  assert.equal(el._progressSafety, null);
   assert.ok(el._cancelEl.classList.contains('show'));
-  assert.equal(calls.unsubscribed, undefined);
-  assert.equal(timers.size, 0, 'first-snapshot timeout cleared for an active job');
 });
 
-test('previous subscription cannot overwrite the next job', async () => {
-  const win = boot();
-  const el = mount(win);
-  const { hass, calls } = makeHass(win);
-  el.hass = hass;
-  el._activeJobId = 7;
-  await el._trackPrintProgress(SENSOR);
-  const old = calls.subscribe[0].cb;
-  el._activeJobId = 8;
-  el._jobFilename = 'next.pdf';
-  await el._trackPrintProgress(SENSOR);
-  calls.subscribe[1].cb({ a: { [SENSOR]: { s: 'processing', a: { job_id: 8 } } } });
-  old({ a: { [SENSOR]: { s: 'completed', a: { job_id: 7 } } } });
+test('a late cancel body cannot affect another printer with the same job ID', async () => {
+  const win = boot(), el = mount(win, { entity: SENSOR });
+  let body;
+  const { hass, calls } = makeHass(win, { fetchImpl: async () => ({ok:false,text:()=>new Promise(r=>{body=r;})}) });
+  push(el, hass, 'processing', { job_id: 7, submitted_at: 'old' });
+  const cancel = el._cancelJob(); await tick();
+  push(el, hass, 'completed', { job_id: 7, submitted_at: 'old' });
+  el.setConfig({entity:'sensor.other_job'});
+  push(el, hass, 'processing', { job_id: 7, submitted_at: 'new', filename:'new.pdf' }, 'sensor.other_job');
+  body('old failure'); await cancel;
+  assert.equal(el._activeSensorId, 'sensor.other_job');
   assert.equal(el._statusEl.textContent, 'Printing…');
-  assert.equal(el._activeJobId, 8);
-  assert.equal(el._fileNameEl.textContent, 'next.pdf');
+  assert.equal(el._fileNameEl.textContent, 'new.pdf');
+  const request = JSON.parse(calls.fetch[0].init.body);
+  assert.equal(request.entity_id, SENSOR);
+  assert.equal(request.submitted_at, 'old');
 });
 
 test('late cancel response does not overwrite completion', async () => {
-  const win = boot();
-  const el = mount(win);
-  let resolveCancel;
-  const { hass, calls } = makeHass(win, {
-    fetchImpl: () => new Promise((resolve) => { resolveCancel = resolve; }),
-  });
-  el.hass = hass;
-  el._activeJobId = 7;
-  el._activeSensorId = SENSOR;
-  await el._trackPrintProgress(SENSOR);
-  const cancel = el._cancelJob();
-  calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 7 } } } });
-  resolveCancel(jsonResponse({ ok: true }));
-  await cancel;
-  assert.match(el._statusEl.textContent, /Print complete/);
+  const win = boot(), el = mount(win);
+  let resolve;
+  const { hass } = makeHass(win, { fetchImpl:()=>new Promise(r=>{resolve=r;}) });
+  push(el, hass, 'processing', { job_id:7 });
+  const cancel=el._cancelJob();
+  push(el, hass, 'completed', { job_id:7 });
+  resolve(jsonResponse({ok:true}));await cancel;
+  assert.match(el._statusEl.textContent,/Print complete/);
 });
 
 test('healed card uses the latest app-root hass', () => {
@@ -422,16 +364,11 @@ test('rejects oversized files before posting', async () => {
   assert.match(el._statusEl.textContent, /50 MiB/);
 });
 
-test('removed sensor ends tracking and hides cancel', async () => {
-  const win = boot();
-  const el = mount(win);
-  const { hass, calls } = makeHass(win);
-  el.hass = hass;
-  el._activeJobId = 7;
-  await el._trackPrintProgress(SENSOR);
-  calls.subscribe[0].cb({ r: [SENSOR] });
-  assert.equal(calls.unsubscribed, true);
-  assert.match(el._statusEl.textContent, /sensor unavailable/);
+test('removed sensor reports unknown outcome and hides cancel', async () => {
+  const win=boot(),el=mount(win);const {hass}=makeHass(win);
+  push(el,hass,'processing',{job_id:7});push(el,hass,null);
+  assert.equal(el._activeJobId,null);
+  assert.match(el._statusEl.textContent,/status unavailable.*queue/);
   assert.ok(!el._cancelEl.classList.contains('show'));
 });
 
@@ -453,7 +390,7 @@ test('a pending cancel for an older job cannot block cancellation of the next jo
   assert.equal(calls.fetch.length, 2);
   resolvers[0](jsonResponse({ ok: true }));
   await oldCancel;
-  assert.equal(el._cancelPending.jobId, 8);
+  assert.equal(el._cancelPending.token, el._jobToken());
   resolvers[1](jsonResponse({ ok: true }));
   await newCancel;
   assert.equal(el._cancelPending, null);
@@ -489,12 +426,12 @@ test('file selection stages locally and Print submits once with file changes loc
   assert.equal(el._primaryEl.disabled, true, 'active print blocks another submission');
   el._pick();
   assert.equal(win.document.querySelector('input[type=file]'), null);
-  calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 42 } } } });
+  push(el, hass, 'completed', {job_id:42});
   assert.equal(el._primaryEl.disabled, false);
   assert.equal(el._primaryEl.textContent, 'Choose file');
   assert.equal(el._fileNameEl.textContent, 'PDF or image');
   el._stageFile(file(win, 'next.pdf', 'application/pdf'));
-  calls.subscribe[0].cb({ a: { [SENSOR]: { s: 'completed', a: { job_id: 42 } } } });
+  push(el, hass, 'completed', {job_id:42});
   assert.equal(el._fileNameEl.textContent, 'next.pdf');
   el.shadowRoot.querySelector('.clear').click();
   assert.equal(el._fileNameEl.textContent, 'PDF or image', 'finished filename never returns');
@@ -565,37 +502,21 @@ test('card surface and child keyboard events do not open a file picker', () => {
   assert.equal(el._cancelEl.tagName, 'BUTTON');
 });
 
-test('disconnect cleans an open picker and a lost job tracker unlocks selection', async () => {
-  const win = boot();
-  const el = mount(win);
-  el._pick();
-  el.remove();
-  assert.equal(win.document.querySelector('input[type=file]'), null);
-  win.document.body.appendChild(el);
-  const { hass, calls } = makeHass(win);
-  el.hass = hass;
-  el._activeJobId = 8;
-  await el._trackPrintProgress(SENSOR);
-  calls.subscribe[0].cb({ r: [SENSOR] });
-  assert.equal(el._activeJobId, null);
-  assert.equal(el._primaryEl.disabled, false);
-  assert.match(el._statusEl.textContent, /sensor unavailable/);
+test('disconnect cleans an open picker; reconnect recovers the latest job', async () => {
+  const win=boot(),el=mount(win);const {hass}=makeHass(win);
+  el._pick();el.remove();assert.equal(win.document.querySelector('input[type=file]'),null);
+  push(el,hass,'processing',{job_id:8});
+  win.document.body.append(el);
+  assert.equal(el._activeJobId,8);
+  assert.ok(el._primaryEl.disabled);
 });
 
-test('native lifecycle hooks close an established subscription and reconnect once', async () => {
-  const win = boot();
-  const el = mount(win);
-  const { hass, calls } = makeHass(win);
-  el.hass = hass;
-  el._activeJobId = 9;
-  el._activeSensorId = SENSOR;
-  await el._trackPrintProgress(SENSOR);
-  assert.equal(calls.subscribe.length, 1);
-  el.remove();
-  assert.equal(calls.unsubscribed, true);
-  win.document.body.appendChild(el);
-  await tick();
-  assert.equal(calls.subscribe.length, 2);
+test('repeated detach and reconnect preserve staged files without submitting', async () => {
+  const win=boot(),el=mount(win);const {hass,calls}=makeHass(win);el.hass=hass;
+  const staged=file(win,'kept.pdf','application/pdf');el._stageFile(staged);
+  for(let i=0;i<3;i++){el.remove();win.document.body.append(el);}
+  assert.equal(el._stagedFile,staged);assert.equal(calls.fetch.length,0);
+  assert.equal(calls.subscribe.length,0);
 });
 
 function optionCaps(entity = SENSOR) {
@@ -911,4 +832,92 @@ test('print language updates preserve the staged file, settings and focused copi
   assert.equal(card._primaryEl.textContent, 'PRINT TEST');
   assert.equal(card._statusEl.textContent, 'READY TEST');
   assert.equal(calls.fetch.length, 0);
+});
+
+
+test('checked connection is independent from idle and stale evidence becomes unknown', () => {
+  const win = boot();
+  const el = mount(win, { entity: SENSOR });
+  const { hass, calls } = makeHass(win, { fetchImpl: async () => jsonResponse({}) });
+  el.hass = hass;
+  const snapshot = { state: 'unreachable', checked_at: new Date().toISOString(), next_check_at: new Date(Date.now()+60_000).toISOString() };
+  push(el, hass, 'idle', { device_connection: snapshot });
+  const warning = el.shadowRoot.querySelector('.connection');
+  assert.equal(warning.hidden, false);
+  assert.match(warning.textContent, /reach/i);
+  assert.match(warning.title, /check/i);
+  push(el, hass, 'idle', { device_connection: { ...snapshot, state: 'reachable' } });
+  assert.equal(warning.hidden, true);
+  push(el, hass, 'idle', { device_connection: { ...snapshot, state: 'reachable', next_check_at: '2000-01-01T00:00:00Z' } });
+  assert.equal(warning.hidden, false);
+  assert.match(warning.textContent, /not.*confirmed/i);
+});
+
+test('HA disconnect blocks actions and reconnect restores pushed state without submission', async () => {
+  const win = boot();
+  const el = mount(win, { entity: SENSOR });
+  const { hass, calls } = makeHass(win, { fetchImpl: async () => jsonResponse({}) });
+  el.hass = hass;
+  push(el, hass, 'processing', { job_id: 7, submitted_at: '2026-10-09T01:00:00Z', pages_done: 0 });
+  el.hass = { ...el._hass, connected: false };
+  assert.equal(el.shadowRoot.querySelector('.primary').disabled, true);
+  assert.equal(el.shadowRoot.querySelector('.cancel').disabled, true);
+  assert.match(el.shadowRoot.querySelector('.connection').textContent, /Home Assistant/);
+  el.shadowRoot.querySelector('.primary').click();
+  el.shadowRoot.querySelector('.cancel').click();
+  assert.equal(calls.fetch.length, 0);
+  push(el, hass, 'canceled', { job_id: 7, submitted_at: '2026-10-09T01:00:00Z', pages_done: 0 });
+  assert.equal(el.shadowRoot.querySelector('.primary').disabled, false);
+  assert.match(el.shadowRoot.querySelector('.status').textContent, /canceled/i);
+  assert.equal(calls.fetch.length, 0);
+});
+
+test('shared long errors keep device text literal and expand recovery guidance', () => {
+  const win = boot();
+  const el = mount(win);
+  const message = 'Device could not confirm the outcome. Check the device before trying again; <img src=x onerror=alert(1)> is text, never markup.';
+  el._setStatus(message, 'err');
+  const node = el.shadowRoot.querySelector('.status');
+  assert.equal(node.textContent, message);
+  assert.equal(node.querySelector('img'), null);
+  assert.ok(node.querySelector('details'));
+});
+
+test('two cards and a reloaded card recover one pushed job without subscriptions', () => {
+  const win = boot();
+  const { hass, calls } = makeHass(win);
+  const a = mount(win, { entity: SENSOR }), b = mount(win, { entity: SENSOR });
+  a.hass = b.hass = hass;
+  b._stageFile(file(win, 'next.pdf', 'application/pdf'));
+  push(a, hass, 'processing', { job_id: 9, submitted_at: '2026-10-09T03:00:00Z', filename: 'external.pdf', pages_done: 0, pages_total: 4 });
+  b.hass = { ...hass };
+  a.remove();
+  const reload = mount(win, { entity: SENSOR }); reload.hass = { ...hass };
+  assert.equal(b._activeJobId, 9);
+  assert.equal(reload._activeJobId, 9);
+  assert.equal(b._stagedFile.name, 'next.pdf');
+  assert.equal(b._fileNameEl.textContent, 'external.pdf');
+  push(b, hass, 'completed', { job_id: 9, submitted_at: '2026-10-09T03:00:00Z', pages_done: 4 });
+  reload.hass = { ...hass };
+  assert.equal(reload._activeJobId, null);
+  assert.equal(reload._fileNameEl.textContent, 'PDF or image');
+  assert.equal(b._stagedFile.name, 'next.pdf');
+  assert.equal(calls.subscribe.length, 0);
+  assert.equal(calls.fetch.length, 0);
+});
+
+test('reused queue IDs and delayed older snapshots cannot replace the submitted job', async () => {
+  const win = boot();
+  const el = mount(win, { entity: SENSOR });
+  const oldTime = '2026-10-09T01:00:00Z', newTime = '2026-10-09T02:00:00Z';
+  const { hass } = makeHass(win, { fetchImpl: async () => jsonResponse({ job_id: 7, submitted_at: newTime }) });
+  el.hass = hass;
+  push(el, hass, 'completed', { job_id: 7, submitted_at: oldTime });
+  await el._upload(file(win, 'new.pdf', 'application/pdf'));
+  assert.equal(el._activeJobId, 7);
+  assert.equal(el._activeSubmittedAt, newTime);
+  push(el, hass, 'processing', { job_id: 7, submitted_at: newTime, pages_done: 1 });
+  push(el, hass, 'completed', { job_id: 7, submitted_at: oldTime });
+  assert.equal(el._activeJobId, 7);
+  assert.match(el._statusEl.textContent, /1/);
 });
