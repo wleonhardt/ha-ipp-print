@@ -1,9 +1,10 @@
 # Shared scan and print card rollout
 
-Status: Phases 0–6 complete, 2026-10-09. Current pair is print 0.11.0 /
-scan 0.12.0. Native cards, durable activity, HP refresh/restart/download and
+Status: Phases 0–6 complete, 2026-10-09. Current pair is print 0.11.1 /
+scan 0.12.1. Native cards, durable activity, HP refresh/restart/download and
 physical phone acceptance passed. The user-requested main dashboard migration
-is complete, with status tiles and navigation preserved. Next is the
+is complete, with status tiles and navigation preserved. Available-HP discovery
+and card-mod fixes are released; additional hardware gates remain in the
 [compatibility follow-up](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-follow-up-2026-10-09.md).
 
 Use the same visual and interaction contract as ha-escl-scan: neutral Home

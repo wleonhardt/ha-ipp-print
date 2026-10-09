@@ -4,8 +4,13 @@
 
 - Native cards promoted to the main Printer dashboard at the user's request;
   connection tiles, page chip and navigation preserved. Original rollout complete.
-  Compatibility follow-up is active: isolated real-HP discovery, card-mod Options
-  investigation and device-report coverage. [Follow-up plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-follow-up-2026-10-09.md).
+  Compatibility follow-up released/installed as Scan 0.12.1 / Print 0.11.1:
+  discovery validates connections, secure discovery offers explicit legacy
+  ciphers, and Options works with card-mod. All 617 tests, four live HP discovery
+  flow checks and hosted/release checks pass. Main layout, Back, activity and PDF
+  verified after restart. Device report forms are ready; additional vendors,
+  bridges and automatic-duplex hardware remain external gates.
+  [Follow-up plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-follow-up-2026-10-09.md).
 
 - Paired activity expansion fixed in both live dashboards using one built-in
   Vertical stack per card. Tile, Mushroom and standalone layouts pass independent
