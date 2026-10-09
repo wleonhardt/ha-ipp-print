@@ -2,9 +2,10 @@
 
 ## Queue
 
-- Active: Phase 5 native Tile and optional Mushroom features, print 0.10.0 /
-  scan 0.11.0. Minimum/current host checks and 572 paired tests pass; installed.
-  Both releases and all hosted checks pass. Physical Android acceptance remains. Standalone cards stay supported.
+- Active: Phase 5 native Tile and optional Mushroom features, print 0.10.1 /
+  scan 0.11.1. Minimum/current host checks and 576 paired tests pass; installed.
+  Both releases and all hosted checks pass. The intermittent Android startup
+  race is patched; physical phone retry remains. Standalone cards stay supported.
   [Canonical plan](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-rollout-2026-10-08.md).
 
 ## Done
