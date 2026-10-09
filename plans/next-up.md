@@ -2,6 +2,11 @@
 
 ## Queue
 
+- Paired alignment/device identity polish prepared for print 0.10.3 / scan
+  0.11.2; 579 paired tests and narrow real-host layout checks pass. Friendly
+  device headings and explicit per-printer card names are documented.
+  [Validation and naming decision](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/card-alignment-and-device-names-2026-10-09.md).
+
 - Phase 5 native Tile/Mushroom features accepted: the user confirmed cards and
   navigation work on the phone after print 0.10.1 / scan 0.11.1 fixed the startup
   registry race. Standalone cards stay supported; existing dashboards stay unchanged.

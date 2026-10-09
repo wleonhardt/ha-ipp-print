@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.10.3] - 2026-10-09
+
+### Fixed
+- Remove the empty warning row's extra gap and reserve the same two-line status
+  space as Scan in native cards. Paired controls align while long messages and
+  filenames remain free to expand. No host CSS overrides or fixed heights.
+
+### Documentation
+- Add a multiple-printer example and friendly device naming guidance for native
+  and standalone cards, with explicit per-card printer targets.
+
 ## [0.10.2] - 2026-10-09
 
 ### Fixed

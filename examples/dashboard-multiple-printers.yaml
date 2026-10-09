@@ -1,0 +1,39 @@
+# Optional view. Replace both entities and names with your configured printers.
+# Each native feature follows only its parent card's Current job sensor.
+title: Printers
+path: printers
+type: sections
+max_columns: 1
+sections:
+  - type: grid
+    cards:
+      - type: tile
+        entity: sensor.office_current_job
+        name: Office · Print
+        icon: mdi:printer
+        hide_state: true
+        tap_action:
+          action: none
+        icon_tap_action:
+          action: none
+        features_position: bottom
+        grid_options:
+          columns: 6
+          rows: auto
+        features:
+          - type: custom:ipp-print-feature
+      - type: tile
+        entity: sensor.study_current_job
+        name: Study · Print
+        icon: mdi:printer
+        hide_state: true
+        tap_action:
+          action: none
+        icon_tap_action:
+          action: none
+        features_position: bottom
+        grid_options:
+          columns: 6
+          rows: auto
+        features:
+          - type: custom:ipp-print-feature

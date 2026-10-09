@@ -441,6 +441,23 @@ Native Tile features are the recommended starting point for new dashboards.
 Existing standalone cards remain supported; dashboards are never migrated automatically. Host verification and
 limits are recorded in the [Phase 5 validation](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/shared-card-phase-5-validation.md).
 
+### Device names and multiple printers
+
+Use one native card per printer, select its own **Current job** sensor, and name
+the card **Office · Print**, **Study · Print**, or another friendly device/room
+name. Two printers can have the same model, so a model number alone is often
+ambiguous. See the [multiple-printer example](examples/dashboard-multiple-printers.yaml).
+Native card names belong to the parent card's `name`; standalone cards use
+`title` and an explicit `entity`. The standalone Options printer selector can
+change the target, so use a fixed native card per printer for a dashboard that
+must always show the device identity beside its controls.
+
+For a Scan/Print pair, a native Heading card such as **Office printer** above the
+pair keeps the short **Scan** / **Print** names clear without repeating the device
+name. Naming is explicit and stable; it does not appear or disappear with device
+counts or availability. The sister eSCL Scan integration currently allows only
+one configured scanner per Home Assistant instance.
+
 ## Development
 
 ```

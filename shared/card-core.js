@@ -156,6 +156,7 @@ const DOCUMENT_CARD_STYLES = `/* Shared document-card contract v1. Keep this bas
       .option-field select, .option-field input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 8px; font: inherit; color: var(--primary-text-color); background: var(--card-background-color); border: 1px solid var(--divider-color); border-radius: 8px; }
       .options-help { color: var(--secondary-text-color); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
       .warning { color: var(--warning-color, var(--primary-text-color)); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+      .warning:empty { display: none; }
       /* End shared document-card base. */`;
 
 // Shared document-card option helpers. Keep this small block identical in both cards.
@@ -270,12 +271,13 @@ C.prototype._finishOptionsPanel = function () {
 // Native hosts own identity/surface; the existing card still owns every workflow.
 const DOCUMENT_FEATURE_STYLES = `
   :host { height: auto; min-width: 0; }
-  .feature-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: var(--primary-text-color); }
-  .feature-body .status { min-height: 20px; }
+  .feature-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; color: var(--primary-text-color); container-type: inline-size; }
   .feature-body .actions { display: flex; align-items: stretch; gap: 8px; }
   .feature-body .primary, .feature-body .cancel { flex: 1; width: auto; min-width: 0; }
   .feature-body button { border-radius: var(--feature-border-radius, 12px); min-height: max(44px, var(--feature-height, 42px)); }
   .feature-body .options-button { margin: 0; }
+  /* Allow a two-line primary label on narrow half-width mobile cards. */
+  @container (max-width: 150px) { .feature-body .actions { min-height: 56px; } }
 `;
 C.prototype._configureFeatureView = function () {
   if (!this._featureMode) return;
