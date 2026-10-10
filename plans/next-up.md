@@ -2,6 +2,12 @@
 
 ## Queue
 
+- Paired documentation overhauled on 2026-10-10: 70-line quick starts plus
+  focused installation, dashboard, usage, automation, troubleshooting,
+  compatibility and API guides. Corrected stale behavior/examples; runtime and
+  production configuration unchanged. All 730 tests and documentation checks
+  pass locally. [Scope and validation](2026-10-10-documentation-overhaul.md).
+
 - Minimum HA backend compatibility released as Print 0.11.5 / Scan 0.12.4.
   Targeted service calls now support HA 2024.12.0's helper API. All 292 Python
   tests pass on the minimum and newer core, plus 65 card tests. Added a minimum

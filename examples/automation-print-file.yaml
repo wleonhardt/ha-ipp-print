@@ -9,7 +9,7 @@ actions:
     target:
       entity_id: sensor.office_current_job   # omit when only one printer is configured
     data:
-      path: /config/www/reports/today.pdf
+      path: /media/reports/today.pdf
       copies: 1
       sides: two-sided-long-edge
     response_variable: job

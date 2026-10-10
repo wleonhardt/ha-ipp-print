@@ -5,6 +5,9 @@ Project knowledge lives here, not in agent memory.
 
 ## Contents
 
+User-facing instructions are in [the documentation index](../docs/README.md).
+
+
 | File | Purpose |
 |------|---------|
 | `next-up.md` | Ordered work queue + done log |
@@ -23,3 +26,5 @@ Project knowledge lives here, not in agent memory.
 - One plan file per initiative, date-prefixed: `YYYY-MM-DD-slug.md`.
 - Decisions: `decisions/YYYY-MM-DD-slug.md`, short — context, decision, consequences.
 - Keep `next-up.md` current; move finished items to its `## Done` section.
+
+[Paired documentation overhaul — 2026-10-10](2026-10-10-documentation-overhaul.md)

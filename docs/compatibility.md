@@ -1,25 +1,53 @@
-# Printer/scanner compatibility and optional bridges
+# Printer compatibility
 
-Direct eSCL and IPP remain the default. A bridge is an optional separately managed
-service. It can expose a device through a protocol these integrations understand;
-it does not guarantee every function of that device works.
+[Documentation](README.md) · [Connection settings](installation.md) · [Troubleshooting](troubleshooting.md)
 
-## Choose an endpoint
+IPP Print connects to an IPP/2.0 printer or queue. The selected endpoint must
+accept the actual document format; PDF/JPEG/PNG support varies by model and
+queue. The integration does not provide a printer driver or convert documents.
 
-| Need | Route | Integration connection |
-|---|---|---|
-| Network scanner offers eSCL | Direct device | Scanner host, advertised port/TLS and `rs` path |
-| Printer accepts the document's format | Direct IPP | Printer host, advertised port/TLS and `rp` path |
-| Printer needs a driver or format conversion | Configured CUPS queue or Printer Application | Bridge host and that queue's exact IPP endpoint |
-| SANE-supported scanner without usable eSCL | AirSane | Bridge host, advertised eSCL endpoint |
-| USB device implements IPP-over-USB | ipp-usb | Bridge host and its assigned IPP/eSCL service ports/paths |
+## Tested devices and evidence
 
-Discovery may not cross VLANs. Manual configuration uses the same advertised
-endpoint. A bridge's `localhost` refers to the bridge machine, not a different
-Home Assistant host/container. Keep the full queue/resource path and port,
-including for IPv6. Print duplex and scan duplex are independent capabilities.
+Evidence recorded through 2026-10-10. A community report or successful capability
+query is useful evidence, but is not the same as a complete physical test.
 
-## CUPS / Printer Application recipe
+| Device or route | Evidence | Limits / unverified work |
+| --- | --- | --- |
+| HP Color LaserJet MFP M283fdw | Locally verified PDF printing, copies, both duplex bindings, offline recovery and retained activity across restart. User confirmed a JPEG retry printed successfully. | The original intermittent JPEG settings failure's cause remains unconfirmed. PNG is not advertised by this device. |
+| Local CUPS queue to that HP | Read PDF capabilities and passed Validate-Job, including typed collection parsing. | Actual conversion and physical output through that queue remain unverified. |
+| Other IPP printers / Printer Applications | Protocol support and simulated parser/submission regressions. | Need model-, firmware- and queue-specific device reports. |
+| ipp-usb | Endpoint configuration supported; route documented below. | No local bridge/device acceptance test. |
+
+Report your model through the [device compatibility form](https://github.com/wleonhardt/ha-ipp-print/issues/new?template=device_compatibility.yml),
+including successful setups. Share firmware, integration/HA versions, route and
+which functions passed. [Collect diagnostics](troubleshooting.md#collect-diagnostics)
+for failures. A report does not establish support for every model from that brand.
+
+## Choose a connection route
+
+| Situation | Route |
+| --- | --- |
+| Printer accepts your format | Connect directly using its advertised IPP/IPPS endpoint. |
+| Printer needs a driver or conversion | Connect to a configured CUPS queue or Printer Application. |
+| USB device implements IPP-over-USB | Connect to a separately managed ipp-usb bridge's IPP endpoint. |
+
+A bridge is an optional service you manage separately. It exposes a compatible
+protocol but does not guarantee every function of the attached device.
+
+## Networks, paths and TLS
+
+- Discovery may not cross VLANs. Manual setup uses the same advertised endpoint.
+- A bridge's `localhost` points to the bridge machine, not your Home Assistant
+  host/container. Use an address Home Assistant can reach.
+- Preserve the full resource/queue path and actual port, including with IPv6.
+  Do not assume that an administration web page is the protocol endpoint.
+- TLS and port are separate choices. In live HP discovery checks, IPPS on port
+  631 needed legacy ciphers while plain IPP on 631 did not. Secure connections
+  never silently switch TLS off or enable legacy ciphers.
+- Authentication support is HTTP Basic. A bridge requiring browser sign-in,
+  Kerberos or another scheme needs a compatible endpoint/policy.
+
+## CUPS and Printer Applications
 
 1. Create a functioning queue on the bridge with the appropriate driver/filter
    or Printer Application. Confirm the bridge can print locally first.
@@ -38,24 +66,7 @@ CUPS shares via IPP/DNS-SD and supports queue-specific policies; the bridge owns
 rendering/spooling and its availability affects printing.
 [Official CUPS sharing guide](https://openprinting.github.io/cups/doc/sharing.html).
 
-## AirSane recipe
-
-1. On the bridge, install a SANE backend that can see and operate the scanner.
-   Confirm discovery as the service user (`scanimage -L`) and a local scan.
-2. Install AirSane using its platform instructions. Its documented default port
-   is 8090. Permit the HA host in its access rules and firewall.
-3. Prefer its discovered eSCL advertisement. For manual setup use the bridge
-   host, actual port/TLS and advertised resource path. The compatible first
-   scanner path is normally `eSCL`; do not assume that path for every scanner.
-4. Verify glass/feeder, colors and DPI. This integration selects one scanner
-   endpoint; AirSane's ability to publish several does not add multi-scanner
-   routing to this integration.
-
-Capabilities and scan quality depend on the SANE backend. AirSane access files
-control allowed addresses; do not assume browser login or new authentication
-schemes are supported here. [AirSane documentation](https://github.com/SimulPiscator/AirSane).
-
-## ipp-usb recipe
+## ipp-usb
 
 1. Confirm the USB device implements IPP-over-USB; this is not a generic USB driver.
 2. Install ipp-usb on the computer attached to it. Use DNS-SD/service discovery to
@@ -70,40 +81,16 @@ schemes are supported here. [AirSane documentation](https://github.com/SimulPisc
 [ipp-usb documentation](https://github.com/OpenPrinting/ipp-usb) describes its HTTP
 proxy, DNS-SD, persisted port allocation and loopback/default interface policy.
 
-## Evidence, not blanket support claims
+For scanning through AirSane, see
+[eSCL Scan compatibility](https://github.com/wleonhardt/ha-escl-scan/blob/main/docs/compatibility.md).
 
-| Target | Evidence available on 2026-10-09 | Remaining check |
-|---|---|---|
-| HP Color LaserJet MFP M283fdw | Physical glass/ADF/manual duplex, print copies/both bindings, offline recovery and retained-result restart tests; live DNS-SD and isolated confirmation/duplicate checks | Automatic duplex scanning is not available on this model |
-| Local CUPS queue to that HP | Current client queried PDF settings and passed Validate-Job; typed collections parsed | Actual conversion/output through that queue |
-| Brother family / Xerox B205-B215 / Ricoh matched models | Scoped recovery policies from sane-airscan source; synthetic retry/delay/cancel regressions | Device captures and physical hardware tests |
-| JPEG/PNG-only eSCL profiles | Synthetic acquisition, dimension, malformed/oversize, cancellation and duplex-order tests | A physical image-only scanner |
-| AirSane / ipp-usb | Documented route and manual endpoint support | Bridge/device instance not available for live testing |
-| Automatic-duplex ADF | Existing simulation and capability selection tests | A scanner that physically scans both sides automatically |
+## Before relying on a new device
 
-Discovery follow-up used live HP advertisements and read-only endpoint probes
-in an isolated HA flow registry. HTTP eSCL on port 8080 and IPP on port 631 work
-with defaults. HTTPS eSCL on 443 and IPPS on 631 need explicit **Allow legacy
-cipher suites** on this HP. Confirmation retains failures and never switches TLS
-off or enables legacy ciphers automatically. Existing production entries were
-untouched; no job was submitted during these discovery checks. Full integration
-initialization was stubbed in the isolated flow check, separately from the earlier
-production setup and physical jobs.
+Test one small document first, then the modes you need. Record physical results
+separately from discovered options. For scanning, verify source, page order and
+orientation; for printing, verify format, copies, binding and paper/tray.
 
-Parser fixtures distinguish real redacted captures from synthetic data. Use the
-[device compatibility report](../.github/ISSUE_TEMPLATE/device_compatibility.yml)
-for successful devices as well as failures. A report does not establish support
-for other models or firmware.
-
-## Reporting a failure
-
-Download integration diagnostics from Home Assistant. They redact credentials,
-addresses, device IDs, names, filenames and storage/endpoint paths while retaining
-capabilities, requested/effective settings and applied scanner policies. Review any
-manually collected raw XML/IPP before sharing: it may contain identifying values.
-Include model/firmware, direct or bridge route, source, color, DPI, file format,
-selected settings, observed result and whether the printer accepted a job.
-
-Do not repeat a submission whose acceptance is unknown. Check the device queue.
-A failed/consumed scan batch is not automatically restarted. Automatic duplex
-failure does not silently switch to a second manual scan of already consumed pages.
+Do not resend a print whose acceptance is unknown without checking its queue.
+A failed/consumed scan batch is not automatically restarted. See the maintainer
+[compatibility follow-up](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/compatibility-follow-up-2026-10-09.md)
+for historical tests and remaining hardware coverage.
