@@ -6,7 +6,9 @@
   Targeted service calls now support HA 2024.12.0's helper API. All 292 Python
   tests pass on the minimum and newer core, plus 65 card tests. Added a minimum
   CI job; all seven hosted checks and the release workflow pass. No new
-  settings/runtime dependencies or production changes; live Print stays 0.11.4.
+  settings/runtime dependencies. Follow-up on 2026-10-10 installed Print 0.11.5
+  and Scan 0.12.4 through HACS, restored update tracking, and verified versions,
+  retained activity and main dashboard cards after restart.
   [Validation](2026-10-09-minimum-ha-compatibility.md).
 
 - Upload concurrency hardening released/installed as 0.11.4: one active document across

@@ -24,3 +24,18 @@ published [v0.11.5](https://github.com/wleonhardt/ha-ipp-print/releases/tag/v0.1
 
 No production HA/device access, restart or physical job occurred. The live
 installation remains 0.11.4; isolated compatibility acceptance is complete.
+
+## HACS installation follow-up — 2026-10-10
+
+At the user's subsequent request, installed Print 0.11.5 and Scan 0.12.4 using
+HACS's download operation. Both integrations had existed on disk without HACS
+installed-version tracking. HACS now records the exact stable releases and
+provides their normal update entities; both report up to date after restart.
+
+All 20 shipped Print files match the release tag. Configuration validation,
+loaded-version diagnostics, reachable HP connections, fresh JPEG capabilities
+and unchanged retained activity pass. The native main-dashboard cards and
+resource registrations were already correct. At 390 × 844, Options/Back and
+independent activity expansion work. No dashboard edit, core upgrade, physical
+job, new setting or dependency was needed. See the
+[paired deployment evidence](https://github.com/wleonhardt/ha-escl-scan/blob/main/plans/minimum-ha-compatibility-2026-10-09.md#hacs-installation-and-dashboard-acceptance--2026-10-10).
