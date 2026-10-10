@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.11.4] - 2026-10-09
+
+### Fixed
+- Bound document preparation and submission to one request across uploads,
+  service calls and configured printers. Concurrent requests get a clear busy
+  error before reading their document; they are never queued or resent.
+  The slot ends after submission, without waiting for physical printing.
+- Release stalled HTTP uploads after five minutes with an actionable timeout
+  and confirmation that no job was submitted. This deadline does not shorten
+  the existing outgoing printer timeout.
+- Keep the slot through entry reload and canceled background file reads;
+  release it after failures and cancellation so a new explicit attempt can work.
+  No new settings or dependencies.
+
 ## [0.11.3] - 2026-10-09
 
 ### Fixed

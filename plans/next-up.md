@@ -2,6 +2,11 @@
 
 ## Queue
 
+- Upload concurrency hardening prepared for 0.11.4: one active document across
+  HTTP/services/printers, early busy rejection, five-minute incoming upload
+  deadline and cancellation/reload cleanup. No queue, automatic resend,
+  settings or dependencies. [Reproduction and validation](2026-10-09-upload-concurrency.md).
+
 - Bounded settings recovery released/installed as 0.11.3: a new explicit print request
   may retry a transient lookup once after 30 seconds, then full backoff applies
   if it fails. No automatic document resend or new settings/dependencies. All

@@ -265,6 +265,12 @@ Print a file that lives on the Home Assistant host. The path must be under
 Returns `{job_id, filename, bytes, state}` when called with
 `response_variable`.
 
+Only one document can be prepared or sent at a time across this action and
+dashboard/API uploads, including different printers. A concurrent call fails
+before reading its file. Wait for the active submission to finish, then invoke
+the action again; requests are not queued or retried automatically. Physical
+printing can continue while the next document is submitted.
+
 Explicit copies/sides require IPP attribute fidelity: the printer must accept
 the requested settings or reject the job, rather than silently substituting
 its defaults. When `sides` is set, the integration also sends the printer's
@@ -335,6 +341,13 @@ holding the target printer's job sensor (`400` without it). Returns:
 ```json
 {"ok": true, "filename": "doc.pdf", "bytes": 13264, "job_id": 42, "state": "pending"}
 ```
+
+While another upload or `ipp_print.print_file` call is preparing or sending a
+document, the endpoint returns `409` before reading the new body. Uploads that
+do not finish within five minutes return `408`. Both responses include a
+human-readable `message` and `job_may_exist: false`, close the upload connection,
+and require a new explicit attempt. They never queue or resend the document.
+The upload deadline ends before validation and submission to the printer.
 
 Example with a long-lived access token:
 
@@ -431,6 +444,8 @@ logger:
   (almost all modern printers do PDF and JPEG; PNG varies). Point the
   integration at a CUPS queue if you need driver-side conversion.
 - **50 MiB upload cap.** Open an issue if you need more.
+- **One active document upload/submission across all printers.** Concurrent
+  requests fail with a busy message; physical print jobs can still overlap.
 - **One tracked job per printer.** Multiple submissions queue at the
   printer side; each printer's sensor reflects its *most recent* job.
 - **HP LaserJets:** several models (M283fdw, M227, etc.) only offer non-PFS

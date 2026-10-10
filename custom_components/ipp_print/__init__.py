@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import timedelta
 import hashlib
 import logging
@@ -77,6 +78,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # Filename sanitiser for incoming uploads.
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+_UPLOAD_TIMEOUT_SECONDS = 300.0
 
 PRINT_FILE_SCHEMA = vol.Schema(
     {
@@ -341,6 +343,27 @@ class SubmitError(Exception):
         self.job_may_exist = job_may_exist
 
 
+@contextmanager
+def _document_slot(hass: HomeAssistant):
+    """Admit one document across HTTP/services/printers; never queue its body.
+
+    Check and reserve synchronously on HA's event loop, before any file read.
+    Keep the flag outside config entries so reload cannot reset an active slot.
+    Physical job tracking does not hold the slot after submission returns.
+    """
+    data = hass.data.setdefault(DOMAIN, {})
+    if data.get("_document_submission_active"):
+        raise SubmitError(
+            "Another document is being prepared or sent. Wait for it to finish, "
+            "then try again. No print job was submitted for this request.", 409,
+        )
+    data["_document_submission_active"] = True
+    try:
+        yield
+    finally:
+        data.pop("_document_submission_active", None)
+
+
 def _pick_entry(hass: HomeAssistant, entry_ids: set[str] | None) -> dict | None:
     """Choose the printer to act on.
 
@@ -580,8 +603,35 @@ def _read_file_capped(path: str) -> bytes:
     return document
 
 
+async def _read_submission_file(hass: HomeAssistant, path: str) -> bytes:
+    """Keep the slot until a canceled executor read really finishes."""
+    job = hass.async_add_executor_job(_read_file_capped, path)
+    try:
+        return await asyncio.shield(job)
+    except asyncio.CancelledError:
+        # Canceling the await cannot stop a worker thread. Repeated cancellation
+        # must not release the slot while that worker can still allocate a file.
+        while not job.done():
+            try:
+                await asyncio.shield(job)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not job.cancelled():
+            job.exception()  # Consume a read failure; cancellation still wins.
+        raise
+
+
 def _make_print_file_handler(hass: HomeAssistant):
     async def _handle(call: ServiceCall) -> ServiceResponse:
+        try:
+            with _document_slot(hass):
+                return await _print_file(call)
+        except SubmitError as exc:
+            raise ServiceValidationError(str(exc)) from exc
+
+    async def _print_file(call: ServiceCall) -> ServiceResponse:
         targeted = any(k in call.data for k in cv.TARGET_SERVICE_FIELDS)
         try:
             live = _pick_entry(
@@ -601,7 +651,7 @@ def _make_print_file_handler(hass: HomeAssistant):
                 "allowlist_external_dirs"
             )
         try:
-            document = await hass.async_add_executor_job(_read_file_capped, path)
+            document = await _read_submission_file(hass, path)
         except FileNotFoundError as exc:
             raise ServiceValidationError(f"file not found: {path}") from exc
         except (OSError, ValueError) as exc:
@@ -656,11 +706,16 @@ class PrintView(HomeAssistantView):
             return self.json_message("integration not configured", status_code=503)
 
         try:
-            reader = await request.multipart()
-        except Exception as exc:
-            _LOGGER.warning("bad multipart body: %s", exc)
-            return self.json_message("invalid multipart body", status_code=400)
+            with _document_slot(self._hass):
+                return await self._post_admitted(request)
+        except SubmitError as exc:
+            response = self.json({"message": str(exc), "job_may_exist": False},
+                                 status_code=exc.status)
+            # Do not drain a refused document just to reuse its connection.
+            response.force_close()
+            return response
 
+    async def _post_admitted(self, request: web.Request) -> web.Response:
         filename_raw: str | None = None
         entity_id: str | None = None
         copies: int | None = None
@@ -669,41 +724,51 @@ class PrintView(HomeAssistantView):
         seen: set[str] = set()
         buf = bytearray()
         try:
-            while (part := await reader.next()) is not None:
-                if part.name not in ("entity_id", "file", "copies", "sides", "media", "color_mode", "quality", "media_source"):
-                    raise SubmitError("unexpected multipart field", 400)
-                if part.name in seen:
-                    raise SubmitError(f"duplicate '{part.name}' field", 400)
-                seen.add(part.name)
-                if part.name == "file":
-                    filename_raw = part.filename
-                    target = buf
-                    limit = MAX_UPLOAD_BYTES
-                else:
-                    target = bytearray()
-                    limit = 512
-                while chunk := await part.read_chunk(64 * 1024):
-                    if len(target) + len(chunk) > limit:
-                        raise SubmitError("too large", 413)
-                    target.extend(chunk)
-                if part.name == "entity_id":
-                    entity_id = target.decode("utf-8").strip() or None
-                elif part.name == "copies":
-                    try:
-                        copies = validate_copies(target.decode("utf-8"))
-                    except vol.Invalid as exc:
-                        raise SubmitError(str(exc), 400) from exc
-                elif part.name == "sides":
-                    sides = target.decode("utf-8")
-                    if sides not in SIDES:
-                        raise SubmitError("invalid sides", 400)
-                elif part.name in ("media", "color_mode", "quality", "media_source"):
-                    value = target.decode("utf-8")
-                    if part.name == "quality":
-                        if value not in ("3", "4", "5"):
-                            raise SubmitError("quality must be 3, 4 or 5", 400)
-                        value = int(value)
-                    options[part.name] = value
+            async with asyncio.timeout(_UPLOAD_TIMEOUT_SECONDS):
+                reader = await request.multipart()
+                while (part := await reader.next()) is not None:
+                    if part.name not in ("entity_id", "file", "copies", "sides", "media", "color_mode", "quality", "media_source"):
+                        raise SubmitError("unexpected multipart field", 400)
+                    if part.name in seen:
+                        raise SubmitError(f"duplicate '{part.name}' field", 400)
+                    seen.add(part.name)
+                    if part.name == "file":
+                        filename_raw = part.filename
+                        target = buf
+                        limit = MAX_UPLOAD_BYTES
+                    else:
+                        target = bytearray()
+                        limit = 512
+                    while chunk := await part.read_chunk(64 * 1024):
+                        if len(target) + len(chunk) > limit:
+                            raise SubmitError("too large", 413)
+                        target.extend(chunk)
+                    if part.name == "entity_id":
+                        entity_id = target.decode("utf-8").strip() or None
+                    elif part.name == "copies":
+                        try:
+                            copies = validate_copies(target.decode("utf-8"))
+                        except vol.Invalid as exc:
+                            raise SubmitError(str(exc), 400) from exc
+                    elif part.name == "sides":
+                        sides = target.decode("utf-8")
+                        if sides not in SIDES:
+                            raise SubmitError("invalid sides", 400)
+                    elif part.name in ("media", "color_mode", "quality", "media_source"):
+                        value = target.decode("utf-8")
+                        if part.name == "quality":
+                            if value not in ("3", "4", "5"):
+                                raise SubmitError("quality must be 3, 4 or 5", 400)
+                            value = int(value)
+                        options[part.name] = value
+        except TimeoutError:
+            response = self.json({
+                "message": "Document upload timed out. Try again when the connection is stable. "
+                           "No print job was submitted.",
+                "job_may_exist": False,
+            }, status_code=408)
+            response.force_close()
+            return response
         except SubmitError as exc:
             return self.json_message(str(exc), status_code=exc.status)
         except Exception as exc:
