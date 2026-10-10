@@ -2,10 +2,13 @@
 
 ## Queue
 
-- Upload concurrency hardening prepared for 0.11.4: one active document across
+- Upload concurrency hardening released/installed as 0.11.4: one active document across
   HTTP/services/printers, early busy rejection, five-minute incoming upload
   deadline and cancellation/reload cleanup. No queue, automatic resend,
-  settings or dependencies. [Reproduction and validation](2026-10-09-upload-concurrency.md).
+  settings or dependencies. All 357 tests and hosted/release checks pass; both
+  cards, diagnostics, read-only HP JPEG lookup and unchanged activity verified
+  after restart. No physical jobs sent.
+  [Reproduction and validation](2026-10-09-upload-concurrency.md).
 
 - Bounded settings recovery released/installed as 0.11.3: a new explicit print request
   may retry a transient lookup once after 30 seconds, then full backoff applies
