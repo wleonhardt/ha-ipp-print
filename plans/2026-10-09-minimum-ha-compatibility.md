@@ -15,6 +15,12 @@ Test-only constructor and setup-cleanup changes let the same assertions run
 on both versions without skipped cases or mocked HA service-target helpers.
 
 Local results: 292 Python tests pass on HA 2024.12.0 and 2026.2.3, plus all 65
-card tests, Ruff, compilation and whitespace checks. No production HA/device
-access or physical job occurs. Hosted CI and release results follow; the live
-installation remains 0.11.4 for this isolated task.
+card tests, Ruff, compilation and whitespace checks. Source commit
+`23ffee788c88dc35447448889316deb8acd59432` passed all seven
+[hosted checks](https://github.com/wleonhardt/ha-ipp-print/actions/runs/38019032694),
+including the minimum job. The successful
+[release workflow](https://github.com/wleonhardt/ha-ipp-print/actions/runs/38019157707)
+published [v0.11.5](https://github.com/wleonhardt/ha-ipp-print/releases/tag/v0.11.5).
+
+No production HA/device access, restart or physical job occurred. The live
+installation remains 0.11.4; isolated compatibility acceptance is complete.

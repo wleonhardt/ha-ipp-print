@@ -2,10 +2,11 @@
 
 ## Queue
 
-- Minimum HA backend compatibility prepared as Print 0.11.5 / Scan 0.12.4.
+- Minimum HA backend compatibility released as Print 0.11.5 / Scan 0.12.4.
   Targeted service calls now support HA 2024.12.0's helper API. All 292 Python
   tests pass on the minimum and newer core, plus 65 card tests. Added a minimum
-  CI job; no new settings/runtime dependencies or production changes.
+  CI job; all seven hosted checks and the release workflow pass. No new
+  settings/runtime dependencies or production changes; live Print stays 0.11.4.
   [Validation](2026-10-09-minimum-ha-compatibility.md).
 
 - Upload concurrency hardening released/installed as 0.11.4: one active document across
