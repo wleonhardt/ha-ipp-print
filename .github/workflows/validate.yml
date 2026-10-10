@@ -70,3 +70,21 @@ jobs:
           python-version: "3.13"
       - run: pip install -r requirements_test.txt
       - run: pytest tests -q
+
+  minimum-ha:
+    name: Minimum HA compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements_test_minimum.txt
+      - name: Verify advertised minimum
+        run: |
+          python - <<'PY'
+          import json
+          from importlib.metadata import version
+          assert version("homeassistant") == json.load(open("hacs.json"))["homeassistant"]
+          PY
+      - run: python -m pytest -q

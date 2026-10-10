@@ -541,6 +541,18 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements_test.txt
 npm ci && npm run test:card      # jsdom tests for card.js
 ```
 
+CI also runs the same Python suite against the advertised minimum, HA 2024.12.0
+with Python 3.12. To reproduce it in a separate environment:
+
+```sh
+python3.12 -m venv venv/minimum
+venv/minimum/bin/pip install -r requirements_test_minimum.txt
+venv/minimum/bin/python -m pytest -q
+```
+
+Device responses are simulated or served by local test servers; these checks
+do not access your configured printer. Minimum-version pins are test-only.
+
 Releases: bump `manifest.json` version, add a `CHANGELOG.md` section, push a
 `vX.Y.Z` tag. The release workflow verifies the version matches and publishes
 the GitHub release from the changelog section.

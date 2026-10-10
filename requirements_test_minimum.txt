@@ -1,0 +1,9 @@
+# Test-only compatibility environment; keep aligned with hacs.json's floor.
+homeassistant==2024.12.0
+pytest-homeassistant-custom-component==0.13.190
+pytest-aiohttp==1.0.5
+# Requirements from HA 2024.12.0's frontend and zeroconf manifests.
+home-assistant-frontend==20241127.4
+zeroconf==0.136.2
+# Old aiodns allows incompatible newer pycares; retain its contemporary API.
+pycares==4.5.0

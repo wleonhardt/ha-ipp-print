@@ -172,10 +172,10 @@ async def test_parallel_setup_registers_card_path_once(hass):
         await asyncio.sleep(0)
 
     with patch.object(hass.http, "async_register_static_paths",
-                      side_effect=yielding_registration) as register, patch.object(
-        hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
-    ):
-        await asyncio.gather(*(integration.async_setup_entry(hass, entry) for entry in entries))
+                      side_effect=yielding_registration) as register:
+        assert all(await asyncio.gather(*(
+            hass.config_entries.async_setup(entry.entry_id) for entry in entries
+        )))
     register.assert_awaited_once()
 
 

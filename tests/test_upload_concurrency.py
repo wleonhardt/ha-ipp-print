@@ -1,5 +1,6 @@
 """Bound document preparation across HTTP uploads, services and printers."""
 import asyncio
+from inspect import signature
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,6 +11,15 @@ from custom_components.ipp_print.const import DOMAIN
 from custom_components.ipp_print.coordinator import JobCoordinator
 
 from test_views import PDF, OK_RESULT, _form, _setup, _setup_two
+
+
+def _service_call(hass, path):
+    from homeassistant.core import ServiceCall
+
+    args = {"domain": DOMAIN, "service": "print_file", "data": {"path": str(path)}}
+    if "hass" in signature(ServiceCall).parameters:
+        args["hass"] = hass
+    return ServiceCall(**args)
 
 
 @pytest.mark.parametrize("two_printers", [False, True])
@@ -264,7 +274,6 @@ async def test_canceled_service_keeps_slot_until_executor_read_finishes(
     hass, hass_client, tmp_path, worker_fails,
 ):
     import threading
-    from homeassistant.core import ServiceCall
 
     await _setup(hass)
     path = tmp_path / "document.pdf"
@@ -287,7 +296,7 @@ async def test_canceled_service_keeps_slot_until_executor_read_finishes(
             patch.object(integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)) as pj, \
             patch.object(JobCoordinator, "_ensure_poll_loop"):
         handler = integration._make_print_file_handler(hass)
-        call = ServiceCall(hass, DOMAIN, "print_file", {"path": str(path)})
+        call = _service_call(hass, path)
         first = asyncio.create_task(handler(call))
         try:
             async with asyncio.timeout(2):
@@ -356,8 +365,6 @@ async def test_reload_cannot_reset_an_upload_slot(hass, hass_client):
 
 @pytest.mark.parametrize("kind", ["http", "service"])
 async def test_canceled_submission_releases_slot_without_resend(hass, hass_client, tmp_path, kind):
-    from homeassistant.core import ServiceCall
-
     await _setup(hass)
     path = tmp_path / "document.pdf"
     path.write_bytes(PDF)
@@ -372,7 +379,7 @@ async def test_canceled_submission_releases_slot_without_resend(hass, hass_clien
     with patch.object(integration.PrinterClient, "print_job", new=AsyncMock(side_effect=submit)) as pj, \
             patch.object(JobCoordinator, "_ensure_poll_loop"):
         if kind == "service":
-            call = ServiceCall(hass, DOMAIN, "print_file", {"path": str(path)})
+            call = _service_call(hass, path)
             first = asyncio.create_task(integration._make_print_file_handler(hass)(call))
         else:
             body_entered, body_release = asyncio.Event(), asyncio.Event()

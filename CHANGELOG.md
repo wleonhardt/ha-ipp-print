@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.11.5] - 2026-10-09
+
+### Fixed
+- Restore entity/device-targeted print service calls on HA 2024.12. Select the
+  supported target-helper signature before calling it, preserving HA's routing
+  and validation without catching or retrying failed submissions.
+
+### Tests
+- Run the full Python suite on the exact advertised HA 2024.12.0 minimum in
+  an isolated CI job, alongside the newer test environment. No settings or
+  runtime dependencies added.
+
 ## [0.11.4] - 2026-10-09
 
 ### Fixed

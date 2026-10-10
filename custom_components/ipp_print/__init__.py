@@ -5,6 +5,7 @@ import asyncio
 from contextlib import contextmanager
 from datetime import timedelta
 import hashlib
+from inspect import signature
 import logging
 from pathlib import Path
 import re
@@ -79,6 +80,8 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 # Filename sanitiser for incoming uploads.
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 _UPLOAD_TIMEOUT_SECONDS = 300.0
+# Older HA helpers require hass explicitly; newer ones get it from ServiceCall.
+_TARGET_HELPER_NEEDS_HASS = "hass" in signature(async_extract_config_entry_ids).parameters
 
 PRINT_FILE_SCHEMA = vol.Schema(
     {
@@ -633,10 +636,11 @@ def _make_print_file_handler(hass: HomeAssistant):
 
     async def _print_file(call: ServiceCall) -> ServiceResponse:
         targeted = any(k in call.data for k in cv.TARGET_SERVICE_FIELDS)
+        target_args = (hass, call) if _TARGET_HELPER_NEEDS_HASS else (call,)
         try:
             live = _pick_entry(
                 hass,
-                await async_extract_config_entry_ids(call) if targeted else None,
+                await async_extract_config_entry_ids(*target_args) if targeted else None,
             )
         except SubmitError as exc:
             raise ServiceValidationError(str(exc)) from exc
