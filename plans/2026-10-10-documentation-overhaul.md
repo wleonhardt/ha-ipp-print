@@ -19,3 +19,8 @@ Validation: 292 Python tests, 65 card tests after npm ci, Ruff and compilation
 pass. Paired documentation link/anchor and YAML/JSON checks pass, including
 validation of print-file examples against the actual service schema. Nothing
 was physically printed or scanned.
+
+All seven [hosted checks](https://github.com/wleonhardt/ha-ipp-print/actions/runs/38059607551)
+pass for `cfeb5e469e60896aef50dc0249c4cdc787cbb732`. Rendered GitHub landing
+pages, guide navigation and code/table rendering were checked. Publication
+acceptance is complete; production remains on Print 0.11.5 / Scan 0.12.4.
