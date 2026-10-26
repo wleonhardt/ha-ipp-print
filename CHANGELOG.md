@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.12.2] - 2026-10-26
+
+### Fixed
+- Where the browser cannot render PDFs (the Home Assistant Android app),
+  the preview now shows only the short notice instead of an empty 320 px
+  box around it.
+
 ## [0.12.1] - 2026-10-26
 
 ### Fixed

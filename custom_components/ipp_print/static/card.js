@@ -862,6 +862,7 @@ C.prototype._render = function () {
       .preview { display: block; max-width: 100%; max-height: 160px; margin-top: 8px; border-radius: 8px; object-fit: contain; }
       .preview-doc { display: block; width: 100%; height: 320px; margin-top: 8px; border: 1px solid var(--divider-color); border-radius: 8px; }
       .preview-doc p { margin: 0; padding: 12px; font-size: 14px; color: var(--secondary-text-color); }
+      .preview-doc.fallback { height: auto; }
     </style>
     <${shell} class="document-body">
       <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div><button class="options-button" type="button" aria-expanded="false" aria-controls="options" data-i18n-label="dialog.title" title=""><ha-icon icon="mdi:tune" aria-hidden="true"></ha-icon></button></div>
@@ -890,6 +891,8 @@ C.prototype._render = function () {
   this._fileActionsEl = root.querySelector('.file-actions');
   this._previewEl = root.querySelector('.preview');
   this._previewDocEl = root.querySelector('.preview-doc');
+  // No PDF viewer (companion-app WebView): only the notice shows, so drop the fixed height.
+  if (navigator.pdfViewerEnabled === false) this._previewDocEl.classList.add('fallback');
   this._previewButton = root.querySelector('.preview-button');
   this._titleEl.textContent = this._config.title || this._t('card.title');
   this._twoSidedEl = root.querySelector('.two-sided');

@@ -597,6 +597,16 @@ test('a host without object URLs still stages files and offers no preview', asyn
   assert.equal(el._stagedFile,chosen);assert.equal(el._previewEl.hidden,true);
   assert.equal(el._previewButton.hidden,true);assert.equal(el._previewDocEl.hidden,true);
 });
+test('a browser without a PDF viewer gets a compact fallback preview', () => {
+  const win=boot({},w=>Object.defineProperty(w.navigator,'pdfViewerEnabled',{value:false,configurable:true}));
+  const el=mount(win);
+  assert.equal(el._previewDocEl.classList.contains('fallback'),true);
+});
+test('a browser that does not report pdfViewerEnabled keeps the full preview', () => {
+  const win=boot(),el=mount(win);
+  assert.equal(win.navigator.pdfViewerEnabled,undefined);
+  assert.equal(el._previewDocEl.classList.contains('fallback'),false);
+});
 test('print dialog preserves focus, validates copies and defers editor changes during an upload', async () => {
   const win=boot(),el=mount(win);let finish;
   const {hass}=makeHass(win,{capabilitiesImpl:async()=>jsonResponse(optionCaps()),
