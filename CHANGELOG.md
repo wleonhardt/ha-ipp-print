@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.11.6] - 2026-10-26
+
+### Fixed
+- Keep the per-poll connection timestamps (`checked_at`, `last_success_at`,
+  `next_check_at`) and the `Current job` sensor's `device_connection` attribute
+  out of Recorder. Each minute's check previously stored a new attribute row
+  for both entities. Live attributes and the card's freshness check are
+  unchanged.
+
 ## [0.11.5] - 2026-10-09
 
 ### Fixed

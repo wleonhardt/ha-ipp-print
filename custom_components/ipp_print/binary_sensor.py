@@ -16,6 +16,8 @@ class ConnectionSensor(BinarySensorEntity):
     _attr_translation_key = "connection"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_should_poll = False
+    # Check timestamps change every poll; keep them out of Recorder.
+    _unrecorded_attributes = frozenset({"checked_at", "last_success_at", "next_check_at"})
 
     def __init__(self, entry, data):
         self._connection = data["connection"]

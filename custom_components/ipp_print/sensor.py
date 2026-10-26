@@ -69,7 +69,7 @@ class PrinterJobSensor(SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = JOB_STATES
     _attr_should_poll = False
-    _unrecorded_attributes = frozenset({"recent_activity"})
+    _unrecorded_attributes = frozenset({"recent_activity", "device_connection"})
 
     def __init__(self, entry: ConfigEntry, data: dict) -> None:
         self._connection = data.get("connection")

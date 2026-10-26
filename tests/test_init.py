@@ -215,6 +215,9 @@ async def test_connection_sensor_and_job_metadata_share_checked_state(hass, prin
     job = hass.states.get("sensor.test_printer_current_job")
     assert job.state == "idle"
     assert job.attributes["device_connection"]["checked_at"] == state.attributes["checked_at"]
+    # Per-poll timestamps stay live for the card but are not written to Recorder.
+    assert {"checked_at", "last_success_at", "next_check_at"} <= state.state_info["unrecorded_attributes"]
+    assert "device_connection" in job.state_info["unrecorded_attributes"]
     printer_status.side_effect = OSError("offline")
     monitor._due = 0
     await monitor.async_check()
