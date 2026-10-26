@@ -84,3 +84,15 @@ Driven over adb on the user's OnePlus (CPH2655, Android 16, companion app
   the staged file was cleared and the test files removed from the phone.
 - Polish left open: on browsers without a PDF viewer the fallback box keeps
   the 320 px preview height. `navigator.pdfViewerEnabled` could collapse it.
+
+## Compact fallback and 0.12.2 — 2026-10-26
+
+- When `navigator.pdfViewerEnabled === false` the card adds a `fallback`
+  class to the preview object and CSS sets `height: auto`, so only the notice
+  shows. Every other browser keeps the 320 px inline preview. The shared card
+  core is unchanged.
+- Two jsdom tests cover the class with the flag false and absent.
+  71 card / 302 Python tests, compileall, hosted checks and the release
+  workflow pass. Released as v0.12.2 (commit `cc67671`).
+- Not installed on the live instance and not checked on the phone yet; the
+  companion WebView is the only known host that reports the flag false.
