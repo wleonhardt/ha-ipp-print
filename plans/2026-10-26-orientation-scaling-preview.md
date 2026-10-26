@@ -43,3 +43,22 @@ See [decisions/2026-10-26-orientation-scaling-preview.md](decisions/2026-10-26-o
   JPEG with orientation=4 + scaling=fit + duplex + A4, all without warnings.
   No physical job was sent. 302 Python / 69 card tests, hosted checks and the
   release workflow pass.
+
+## HACS installation and card check — 2026-10-26
+
+- Backed up the installed component and HACS tracking to
+  `/config/.document-card-backups/before-print-0120-20261026.tar.gz`.
+- Installed v0.12.0 through HACS's own download operation after a repository
+  refresh. All 20 shipped files match the release tag's SHA-256 hashes.
+  `ha core check` passed; one restart with the printer idle. HA stays 2026.10.4.
+- After restart the entry is loaded with no ipp_print errors, the update entity
+  reports v0.12.0 installed and up to date, and a fresh JPEG capability
+  lookup lists orientations 3–7 and scalings auto/auto-fit/fill/fit/none with
+  defaults 3 and auto. The card resource serves the new content hash.
+- Live card on `/lovelace/printer` (dark theme): a generated JPEG stages with
+  its thumbnail, Preview opens a blob URL in a new tab, and Options shows
+  Orientation and Scaling with readable labels. Constrained to a 358 px host
+  (334 px card body, a 390 px phone's width) nothing overflows: thumbnail
+  320 × 160, three 106 px file actions, nine full-width fields, and the Options
+  panel scrolls inside its 740 px limit. This was an in-page width constraint,
+  not a physical phone; no job was submitted and the staged file was cleared.

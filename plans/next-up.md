@@ -6,8 +6,10 @@
   Two advertised-only options on the card, service and upload endpoint; browser
   native image thumbnail and Preview action. 302 Python / 69 card tests, all
   seven hosted checks and the release workflow pass. Three read-only Validate-Job
-  combinations accepted by the HP; no physical job sent. Awaiting requester
-  feedback on their printer.
+  combinations accepted by the HP; no physical job sent. Installed through
+  HACS the same day: files match the tag, entry loaded after restart, live card
+  shows thumbnail, Preview, Orientation and Scaling, and fits a 358 px host.
+  Awaiting requester feedback on their printer.
   [Plan](2026-10-26-orientation-scaling-preview.md).
 
 - Paired documentation overhauled on 2026-10-10: 70-line quick starts plus
