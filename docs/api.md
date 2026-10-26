@@ -27,7 +27,7 @@ Schema version 1 includes the resolved sensor, bounded identity, queried format,
 `defaults`, `supported`, integration `limits` and `request_options`.
 
 Supported settings include formats, sides, copies maximum, paper, ready paper,
-trays, colors and quality. `auto_sensing` is separate: advertising octet-stream
+trays, colors, quality, orientations and scalings. `auto_sensing` is separate: advertising octet-stream
 alone does not establish upload support for PDF/JPEG/PNG. No addresses,
 credentials or raw IPP attributes are returned. Routine queries omit the
 potentially large `media-col-database` attribute.
@@ -55,6 +55,8 @@ integration 503. Capability reads do not submit a document.
 | `sides` | `one-sided`, `two-sided-long-edge`, or `two-sided-short-edge`. |
 | `media`, `media_source`, `color_mode` | Advertised paper, tray and color keywords. |
 | `quality` | `3`, `4`, or `5`, if advertised. |
+| `orientation` | `3` portrait, `4` landscape, `5` reverse landscape, `6` reverse portrait or `7` none, if advertised. |
+| `scaling` | `auto`, `auto-fit`, `fill`, `fit` or `none`, if advertised. |
 
 Send each field at most once. Unknown or duplicate fields return 400. Metadata
 fields are limited to 512 bytes each; excess file/field size returns 413.

@@ -33,6 +33,12 @@ different settings for PDF and images.
 | Tray | Device default or an advertised paper source. |
 | Color | Device default or an advertised mode. |
 | Quality | Device default or an advertised draft, normal or best setting. |
+| Orientation | Device default or an advertised orientation. Printers may ignore it for PDF pages that carry their own orientation; it mainly affects images. |
+| Scaling | Device default, fit to page, fill page, automatic fit or actual size, as advertised. IPP has no percentage zoom. |
+
+**Preview** opens the chosen file in your browser; a chosen image also shows a
+thumbnail on the card. The preview shows the document as chosen, not how the
+printer will orient or scale it.
 
 The card starts with **one copy and one-sided printing** unless you change its
 [defaults](dashboard.md#card-defaults). Selecting another file or printer

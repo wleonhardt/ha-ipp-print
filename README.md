@@ -48,7 +48,8 @@ resource entry or styling code is needed.
 
 1. Press **Choose file** and select a PDF, JPEG or PNG supported by your printer.
 2. Set **Two-sided** if needed. Open the sliders button for copies, binding,
-   paper, tray, color and quality.
+   paper, tray, color, quality, orientation and scaling. **Preview** opens the
+   chosen file in your browser.
 3. Press **Print**. Choosing a file alone does not send it to the printer.
 
 **Recent activity** keeps the last ten job outcomes per printer for seven days,

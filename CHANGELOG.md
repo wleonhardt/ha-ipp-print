@@ -4,6 +4,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.12.0] - 2026-10-26
+
+### Added
+- Orientation and Scaling print options (issue #8). Both follow the printer's
+  advertised `orientation-requested-supported` and `print-scaling-supported`
+  values, appear in the card's Options, and are accepted by `print_file` and
+  `POST /api/ipp_print/print` as `orientation` (3–7) and `scaling` (`auto`,
+  `auto-fit`, `fill`, `fit`, `none`). Rejected values submit nothing. IPP has
+  no percentage zoom, so none is offered.
+- Preview of the chosen file: a thumbnail for JPEG/PNG on the card and a
+  **Preview** action that opens any chosen file in the browser. No rendering
+  library; the preview shows the document, not the printer's output.
+
+### Changed
+- Fresh capability lookups request four batches of eight attributes instead
+  of three.
+
 ## [0.11.6] - 2026-10-26
 
 ### Fixed
