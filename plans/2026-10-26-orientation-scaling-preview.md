@@ -1,6 +1,6 @@
 # Orientation, scaling and preview (issue #8)
 
-Status: in progress (2026-10-26)
+Status: released as 0.12.0 (2026-10-26)
 
 ## Request
 
@@ -38,5 +38,8 @@ See [decisions/2026-10-26-orientation-scaling-preview.md](decisions/2026-10-26-o
 ## Validation
 
 - `pytest`, `npm run test:card`, compileall, hosted checks.
-- Live: one read-only Validate-Job with orientation=4 and scaling=fit against
-  the HP; physical job only if explicitly approved.
+- Live (2026-10-26): read-only Validate-Job on the HP accepted JPEG with
+  orientation=4 + scaling=fit, PDF with orientation=7 + scaling=none, and
+  JPEG with orientation=4 + scaling=fit + duplex + A4, all without warnings.
+  No physical job was sent. 302 Python / 69 card tests, hosted checks and the
+  release workflow pass.
