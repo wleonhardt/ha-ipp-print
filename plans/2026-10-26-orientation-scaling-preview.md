@@ -94,5 +94,22 @@ Driven over adb on the user's OnePlus (CPH2655, Android 16, companion app
 - Two jsdom tests cover the class with the flag false and absent.
   71 card / 302 Python tests, compileall, hosted checks and the release
   workflow pass. Released as v0.12.2 (commit `cc67671`).
-- Not installed on the live instance and not checked on the phone yet; the
-  companion WebView is the only known host that reports the flag false.
+- Installed through HACS the same day after a backup to
+  `/config/.document-card-backups/before-print-0122-20261026.tar.gz`. All 20
+  files match the tag's SHA-256 hashes; `ha core check` passed; one restart
+  with the printer idle. Entry loaded, the update entity reports v0.12.2
+  installed and up to date, the card resource serves hash `7d0ab5c3f7a5`
+  with the new CSS and flag check, and the HA log has no ipp_print errors.
+- Desktop (BrowserOS neo, `pdfViewerEnabled` true): no `fallback` class and
+  the open preview keeps 320 px.
+- Phone (OnePlus, companion app, rotation locked then restored): a 262-byte
+  two-page PDF and a 3.15 MB PDF both preview as the notice alone inside a
+  compact bordered box; Hide preview restores the layout. Preview stays open
+  across the Options dialog (Back closes it), across Home and resume, across
+  a cancelled Replace picker and across the Two-sided toggle and Recent
+  activity expansion. Replace to a JPEG shows the thumbnail and hides the
+  Preview button; Replace to a PDF again starts with the preview closed.
+  Three quick Preview taps leave it open (odd count), so no double-toggle
+  race. Clear hides everything and returns to Choose file. The system picker
+  greys out non-PDF/image files, so the invalid-type path cannot be reached
+  from the phone. Nothing printed; staged file cleared, test files removed.

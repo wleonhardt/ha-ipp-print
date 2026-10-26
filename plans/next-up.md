@@ -13,8 +13,10 @@
   0.12.1 verified on the physical phone: inline PDF preview fallback, nine
   Options fields, Done keeps the file. 0.12.2 released the same day: the
   fallback notice no longer sits in an empty 320 px box where the browser has
-  no PDF viewer. 71 card / 302 Python tests and hosted checks pass; 0.12.2 is
-  not yet installed or phone-checked. Awaiting requester feedback.
+  no PDF viewer. 71 card / 302 Python tests and hosted checks pass. Installed
+  through HACS (files match the tag, entry loaded after restart) and verified
+  on the phone: compact notice, preview state survives Options, resume and a
+  cancelled picker, Replace and Clear behave. Awaiting requester feedback.
   [Plan](2026-10-26-orientation-scaling-preview.md).
 
 - Paired documentation overhauled on 2026-10-10: 70-line quick starts plus
