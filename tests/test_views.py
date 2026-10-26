@@ -377,11 +377,13 @@ async def test_paper_tray_color_quality_are_preflighted_before_upload(
     info.media_sources = ["tray-1"]
     info.color_modes = ["monochrome"]
     info.qualities = [4]
+    info.orientations = [3, 4]
+    info.scalings = ["auto", "fit"]
     await _setup(hass)
     http = await hass_client()
     form = _form(PDF)
     settings = {"media": "iso_a4_210x297mm", "media_source": "tray-1",
-                "color_mode": "monochrome", "quality": "4"}
+                "color_mode": "monochrome", "quality": "4", "orientation": "4", "scaling": "fit"}
     for key, value in settings.items():
         form.add_field(key, value)
     with patch.object(integration.PrinterClient, "print_job", AsyncMock(return_value=OK_RESULT)) as post:
@@ -391,6 +393,9 @@ async def test_paper_tray_color_quality_are_preflighted_before_upload(
     assert validation_result.call_args.kwargs["media_source"] == "tray-1"
     assert post.call_args.kwargs["quality"] == 4
     assert post.call_args.kwargs["color_mode"] == "monochrome"
+    assert post.call_args.kwargs["orientation"] == 4
+    assert post.call_args.kwargs["scaling"] == "fit"
+    assert validation_result.call_args.kwargs["orientation"] == 4
 
 
 async def test_preflight_failure_confirms_no_job_and_never_uploads(

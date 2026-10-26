@@ -134,7 +134,14 @@ OPTION_ATTRS_REQUESTED = (
     b"media-col-supported",
     b"print-color-mode-supported", b"print-quality-supported",
     b"print-color-mode-default", b"print-quality-default", b"sides-default", b"copies-default",
+    b"orientation-requested-supported", b"orientation-requested-default",
+    b"print-scaling-supported", b"print-scaling-default",
 )
+
+# orientation-requested enum values (RFC 8011 §5.2.10; 7 = none, PWG 5100.13).
+ORIENTATIONS = (3, 4, 5, 6, 7)
+# print-scaling keywords (PWG 5100.13 §5.2.x).
+SCALINGS = ("auto", "auto-fit", "fill", "fit", "none")
 
 # IPP job-state enum values (RFC 8011 §5.3.7).
 JOB_STATE_NAMES = {
@@ -181,6 +188,8 @@ class PrinterInfo:
     media_col_members: list[str] = field(default_factory=list)
     color_modes: list[str] = field(default_factory=list)
     qualities: list[int] = field(default_factory=list)
+    orientations: list[int] = field(default_factory=list)
+    scalings: list[str] = field(default_factory=list)
     operations: list[int] = field(default_factory=list)
     versions: list[str] = field(default_factory=list)
     document_format: str | None = None
@@ -205,6 +214,8 @@ class PrinterInfo:
             "media_col_members": self.media_col_members,
             "color_modes": self.color_modes,
             "qualities": self.qualities,
+            "orientations": self.orientations,
+            "scalings": self.scalings,
             "operations": self.operations,
             "versions": self.versions,
             "document_format": self.document_format,
@@ -289,6 +300,8 @@ def build_print_job(
     color_mode: str | None = None,
     media_source: str | None = None,
     quality: int | None = None,
+    orientation: int | None = None,
+    scaling: str | None = None,
 ) -> bytes:
     # Truncate at a codepoint boundary — a raw byte-slice can split UTF-8.
     job_name_bytes = job_name.encode()[:255].decode("utf-8", "ignore").encode()
@@ -303,7 +316,8 @@ def build_print_job(
             # Explicit settings must not silently fall back to simplex or
             # another copy count. Without fidelity, IPP permits substitution.
             + (_attr(TAG_BOOLEAN, b"ipp-attribute-fidelity", b"\x01")
-               if copies is not None or sides or media or color_mode or media_source or quality else b"")
+               if copies is not None or sides or media or color_mode or media_source or quality
+               or orientation is not None or scaling else b"")
         ),
     )
     # Job-template attributes live in their own group (RFC 8011 §4.2.1).
@@ -332,6 +346,10 @@ def build_print_job(
         job_attrs += _attr(TAG_KEYWORD, b"print-color-mode", color_mode.encode())
     if quality is not None:
         job_attrs += _attr(TAG_ENUM, b"print-quality", _int_value(quality))
+    if orientation is not None:
+        job_attrs += _attr(TAG_ENUM, b"orientation-requested", _int_value(orientation))
+    if scaling:
+        job_attrs += _attr(TAG_KEYWORD, b"print-scaling", scaling.encode())
     if job_attrs:
         job_attrs = bytes([TAG_JOB_ATTRS]) + job_attrs
     return (
@@ -469,11 +487,13 @@ def _printer_info_from_attributes(attrs: dict[str, list]) -> PrinterInfo:
         media_col_members=_all_str(attrs, "media-col-supported"),
         color_modes=_all_str(attrs, "print-color-mode-supported"),
         qualities=[v for v in attrs.get("print-quality-supported", []) if type(v) is int],
+        orientations=[v for v in attrs.get("orientation-requested-supported", []) if type(v) is int],
+        scalings=_all_str(attrs, "print-scaling-supported"),
         operations=[v for v in attrs.get("operations-supported", []) if type(v) is int],
         versions=_all_str(attrs, "ipp-versions-supported"),
         defaults={key: attrs[key][0] for key in (
             "media-default", "sides-default", "copies-default", "print-color-mode-default",
-            "print-quality-default",
+            "print-quality-default", "orientation-requested-default", "print-scaling-default",
         ) if attrs.get(key) and type(attrs[key][0]) in (str, int)},
         media_collections={key: [v for v in attrs.get(key, []) if isinstance(v, dict)]
                            for key in ("media-col-default", "media-col-ready", "media-col-database")},
@@ -668,6 +688,8 @@ class PrinterClient:
         color_mode: str | None = None,
         media_source: str | None = None,
         quality: int | None = None,
+        orientation: int | None = None,
+        scaling: str | None = None,
     ) -> JobSubmissionResult:
         req = build_print_job(
             printer_uri=self._uri,
@@ -679,6 +701,7 @@ class PrinterClient:
             sides=sides,
             media=media,
             color_mode=color_mode, quality=quality, media_source=media_source,
+            orientation=orientation, scaling=scaling,
         )
         req = self._version + req[2:]
         return parse_print_job_response(

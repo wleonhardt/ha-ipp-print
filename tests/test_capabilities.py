@@ -43,7 +43,8 @@ async def test_idle_capabilities_are_cached_scoped_and_private(hass, hass_client
         assert body["entity_id"] == "sensor.test_printer_current_job_2"
         assert body["supported"]["copies_max"] == 99
         assert body["supported"]["sides"] == ["one-sided", "two-sided-long-edge"]
-        assert body["request_options"] == ["entity_id", "copies", "sides", "media", "color_mode", "quality", "media_source"]
+        assert body["request_options"] == ["entity_id", "copies", "sides", "media", "color_mode", "quality",
+                                           "media_source", "orientation", "scaling"]
         assert "127.0.0." not in str(body)
     assert printer_attrs.await_count == 2  # only the two setup probes
     for query in ("entity_id=sensor.other", "entity_id=button.other"):
@@ -108,6 +109,8 @@ async def test_upload_options_route_after_file_and_use_fresh_media(
     ([("sides", "duplex")], 400), ([("sides", "")], 400),
     ([("sides", "x" * 513)], 413), ([("copies", "1" * 513)], 413),
     ([("quality", "normal")], 400),
+    ([("orientation", "landscape")], 400), ([("orientation", "2")], 400),
+    ([("scaling", "50%")], 400), ([("scaling", "")], 400),
 ])
 async def test_invalid_options_submit_nothing(hass, hass_client, fields, status):
     await _setup(hass)
@@ -202,3 +205,29 @@ async def test_stale_generic_format_list_does_not_veto_fresh_format_support(
     submit.assert_awaited_once()
     assert submit.call_args.kwargs["document_format"] == "application/pdf"
     assert printer_attrs.await_count == 3
+
+
+async def test_orientation_and_scaling_are_validated_against_the_printer(
+    hass, hass_client, printer_attrs,
+):
+    info = printer_attrs.return_value
+    info.orientations = [3, 4]
+    info.scalings = ["auto", "fit"]
+    await _setup(hass)
+    http = await hass_client()
+    body = await (await http.get("/api/ipp_print/capabilities")).json()
+    assert body["supported"]["orientations"] == [3, 4]
+    assert body["supported"]["scalings"] == ["auto", "fit"]
+    for fields in ([("orientation", "5")], [("scaling", "fill")]):
+        with patch.object(integration.PrinterClient, "print_job", new=AsyncMock()) as submit:
+            response = await http.post("/api/ipp_print/print", data=form([("file", PDF)] + fields))
+        assert response.status == 400
+        submit.assert_not_called()
+
+
+def test_service_schema_accepts_only_advertisable_orientation_and_scaling():
+    data = integration.PRINT_FILE_SCHEMA({"path": "/tmp/file.pdf", "orientation": "4", "scaling": "fit"})
+    assert data["orientation"] == 4 and data["scaling"] == "fit"
+    for bad in ({"orientation": 2}, {"orientation": True}, {"scaling": "zoom"}):
+        with pytest.raises(vol.Invalid):
+            integration.PRINT_FILE_SCHEMA({"path": "/tmp/file.pdf", **bad})

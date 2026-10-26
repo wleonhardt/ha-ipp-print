@@ -64,7 +64,7 @@ from .capabilities import capability_snapshot, validate_copies
 from .connection import DeviceConnection
 from .diagnostics import record_blocked_format_probe
 from .coordinator import JobCoordinator
-from .printer import SIDES, IppError, IppHttpError, PrinterClient, PrinterInfo, media_dimensions
+from .printer import ORIENTATIONS, SCALINGS, SIDES, IppError, IppHttpError, PrinterClient, PrinterInfo, media_dimensions
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -94,6 +94,8 @@ PRINT_FILE_SCHEMA = vol.Schema(
         vol.Optional("color_mode"): vol.All(str, vol.Length(min=1, max=64)),
         vol.Optional("quality"): vol.All(validate_copies, vol.In([3, 4, 5])),
         vol.Optional("media_source"): vol.All(str, vol.Length(min=1, max=255)),
+        vol.Optional("orientation"): vol.All(validate_copies, vol.In(ORIENTATIONS)),
+        vol.Optional("scaling"): vol.In(SCALINGS),
     }
 ).extend(cv.TARGET_SERVICE_FIELDS)
 
@@ -445,6 +447,8 @@ async def _submit(
     color_mode: str | None = None,
     quality: int | None = None,
     media_source: str | None = None,
+    orientation: int | None = None,
+    scaling: str | None = None,
 ) -> dict[str, Any]:
     """Shared submit path for the HTTP view and the service.
 
@@ -472,7 +476,8 @@ async def _submit(
     # unreachable printer. Stale/unknown base data must not veto a fresh probe.
     if cache.metadata()["status"] == "fresh":
         _check_document_format(info, document_format)
-    explicit = copies is not None or sides is not None or media or media_source or color_mode or quality is not None
+    explicit = (copies is not None or sides is not None or media or media_source or color_mode
+                or quality is not None or orientation is not None or scaling)
     if explicit:
         format_cache = await _format_cache(live, document_format)
         info = live["printer_info"] = await format_cache.async_get(fresh=True)
@@ -507,6 +512,11 @@ async def _submit(
     if media_source is not None and (not isinstance(media_source, str) or not info
                                     or media_source not in info.media_sources):
         raise SubmitError("selected tray is not advertised by this printer", 400)
+    if orientation is not None and (type(orientation) is not int or not info
+                                    or orientation not in info.orientations):
+        raise SubmitError("selected orientation is not advertised by this printer", 400)
+    if scaling is not None and (not isinstance(scaling, str) or not info or scaling not in info.scalings):
+        raise SubmitError("selected scaling is not advertised by this printer", 400)
     if media_source and info and info.media_col_members and "media-source" not in info.media_col_members:
         raise SubmitError("this printer does not support selecting a tray with media-col", 400)
     effective_media = media if media is not None else (
@@ -521,6 +531,10 @@ async def _submit(
         options["color_mode"] = color_mode
     if quality is not None:
         options["quality"] = quality
+    if orientation is not None:
+        options["orientation"] = orientation
+    if scaling is not None:
+        options["scaling"] = scaling
     validation_warning = None
     if explicit:
         try:
@@ -679,6 +693,7 @@ def _make_print_file_handler(hass: HomeAssistant):
                 sides=call.data.get(ATTR_SIDES),
                 media=call.data.get("media"), color_mode=call.data.get("color_mode"),
                 quality=call.data.get("quality"), media_source=call.data.get("media_source"),
+                orientation=call.data.get("orientation"), scaling=call.data.get("scaling"),
             )
         except SubmitError as exc:
             raise HomeAssistantError(str(exc)) from exc
@@ -731,7 +746,8 @@ class PrintView(HomeAssistantView):
             async with asyncio.timeout(_UPLOAD_TIMEOUT_SECONDS):
                 reader = await request.multipart()
                 while (part := await reader.next()) is not None:
-                    if part.name not in ("entity_id", "file", "copies", "sides", "media", "color_mode", "quality", "media_source"):
+                    if part.name not in ("entity_id", "file", "copies", "sides", "media", "color_mode", "quality",
+                                         "media_source", "orientation", "scaling"):
                         raise SubmitError("unexpected multipart field", 400)
                     if part.name in seen:
                         raise SubmitError(f"duplicate '{part.name}' field", 400)
@@ -758,12 +774,18 @@ class PrintView(HomeAssistantView):
                         sides = target.decode("utf-8")
                         if sides not in SIDES:
                             raise SubmitError("invalid sides", 400)
-                    elif part.name in ("media", "color_mode", "quality", "media_source"):
+                    elif part.name in ("media", "color_mode", "quality", "media_source", "orientation", "scaling"):
                         value = target.decode("utf-8")
                         if part.name == "quality":
                             if value not in ("3", "4", "5"):
                                 raise SubmitError("quality must be 3, 4 or 5", 400)
                             value = int(value)
+                        elif part.name == "orientation":
+                            if value not in ("3", "4", "5", "6", "7"):
+                                raise SubmitError("orientation must be 3, 4, 5, 6 or 7", 400)
+                            value = int(value)
+                        elif part.name == "scaling" and value not in SCALINGS:
+                            raise SubmitError("invalid scaling", 400)
                         options[part.name] = value
         except TimeoutError:
             response = self.json({

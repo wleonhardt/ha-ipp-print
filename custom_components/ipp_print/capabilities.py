@@ -7,7 +7,7 @@ import voluptuous as vol
 
 from .capability_cache import CapabilityCache
 from .const import DOMAIN, MAX_UPLOAD_BYTES
-from .printer import SIDES, PrinterInfo
+from .printer import ORIENTATIONS, SCALINGS, SIDES, PrinterInfo
 
 UPLOAD_FORMATS = ("application/pdf", "image/jpeg", "image/png")
 MAX_COPIES = 99
@@ -45,10 +45,14 @@ def capability_snapshot(cache: CapabilityCache[PrinterInfo], entity_id: str | No
             "media_ready": info.media_ready[:128] if info and info.media_ready is not None else None,
             "color_modes": list(info.color_modes)[:128] if info and info.color_modes else None,
             "qualities": [q for q in info.qualities if q in (3, 4, 5)] if info and info.qualities else None,
+            "orientations": [o for o in info.orientations if o in ORIENTATIONS]
+            if info and info.orientations else None,
+            "scalings": [s for s in info.scalings if s in SCALINGS] if info and info.scalings else None,
         },
         "defaults": info.defaults if info else {},
         "document_format": info.document_format if info else None,
-        "request_options": ["entity_id", "copies", "sides", "media", "color_mode", "quality", "media_source"],
+        "request_options": ["entity_id", "copies", "sides", "media", "color_mode", "quality", "media_source",
+                            "orientation", "scaling"],
         "limits": {"copies_min": 1, "copies_max": MAX_COPIES,
                    "upload_bytes": MAX_UPLOAD_BYTES, "formats": list(UPLOAD_FORMATS)},
     }

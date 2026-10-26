@@ -77,6 +77,24 @@
         "two-sided-long-edge": "Two-sided, long edge (portrait duplex)",
         "two-sided-short-edge": "Two-sided, short edge (landscape duplex)"
       }
+    },
+    "orientation": {
+      "options": {
+        "3": "Portrait",
+        "4": "Landscape",
+        "5": "Reverse landscape",
+        "6": "Reverse portrait",
+        "7": "None (use the document's orientation)"
+      }
+    },
+    "scaling": {
+      "options": {
+        "auto": "Automatic",
+        "auto-fit": "Automatic fit",
+        "fill": "Fill page",
+        "fit": "Fit to page",
+        "none": "Actual size"
+      }
     }
   },
   "services": {
@@ -119,6 +137,14 @@
         "quality": {
           "name": "Quality",
           "description": "Advertised quality: 3 = draft, 4 = normal, 5 = best."
+        },
+        "orientation": {
+          "name": "Orientation",
+          "description": "Advertised orientation-requested value: 3 = portrait, 4 = landscape, 5 = reverse landscape, 6 = reverse portrait, 7 = none. Printers may ignore it for PDF pages that carry their own orientation."
+        },
+        "scaling": {
+          "name": "Scaling",
+          "description": "Advertised print-scaling keyword: auto, auto-fit, fill, fit or none."
         }
       }
     }

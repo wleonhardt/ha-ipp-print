@@ -148,6 +148,28 @@ def test_build_print_job_job_template_group():
     assert req.index(b"copies") < req.index(bytes([p.TAG_END_ATTRS]) + b"%PDF-x")
 
 
+def test_build_print_job_sends_orientation_enum_and_scaling_keyword():
+    req = p.build_print_job(
+        printer_uri="ipp://h/ipp/print", user="u", job_name="a",
+        document_format="image/jpeg", document=b"", orientation=4, scaling="fit",
+    )
+    assert p._attr(p.TAG_ENUM, b"orientation-requested", p._int_value(4)) in req
+    assert p._attr(p.TAG_KEYWORD, b"print-scaling", b"fit") in req
+    _, attrs = p.parse_response(req)
+    assert attrs["orientation-requested"] == [4] and attrs["print-scaling"] == ["fit"]
+
+
+def test_printer_info_parses_orientation_and_scaling():
+    info = p._printer_info_from_attributes({
+        "orientation-requested-supported": [3, 4, 5, 6, 7], "orientation-requested-default": [3],
+        "print-scaling-supported": ["auto", "auto-fit", "fill", "fit", "none"], "print-scaling-default": ["auto"],
+    })
+    assert info.orientations == [3, 4, 5, 6, 7] and info.scalings == ["auto", "auto-fit", "fill", "fit", "none"]
+    assert info.defaults["orientation-requested-default"] == 3
+    assert info.defaults["print-scaling-default"] == "auto"
+    assert info.to_dict()["orientations"] == [3, 4, 5, 6, 7]
+
+
 def test_build_print_job_sends_explicit_single_copy():
     req = p.build_print_job(
         printer_uri="ipp://h/ipp/print", user="u", job_name="a",
@@ -159,7 +181,7 @@ def test_build_print_job_sends_explicit_single_copy():
 
 @pytest.mark.parametrize("settings", [
     {"copies": 1}, {"sides": "two-sided-long-edge"},
-    {"media": "na_letter_8.5x11in"},
+    {"media": "na_letter_8.5x11in"}, {"orientation": 4}, {"scaling": "fit"},
 ])
 def test_explicit_settings_require_fidelity_in_operation_group(settings):
     req = p.build_print_job(

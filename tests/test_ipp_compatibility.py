@@ -71,7 +71,7 @@ async def test_format_query_uses_mime_and_preserves_ready_vs_default():
             assert attrs["document-format"] == ["application/pdf"]
             assert len(attrs["requested-attributes"]) <= 8
         assert await GET_ATTRS(client, "application/pdf") is info
-        assert post.await_count == 3
+        assert post.await_count == 4  # 26 requested attributes in batches of 8
 
 
 async def test_read_only_version_negotiation_remembers_11():

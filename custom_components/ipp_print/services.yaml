@@ -53,3 +53,25 @@ print_file:
           max: 5
           step: 1
           mode: box
+    orientation:
+      example: 4
+      selector:
+        select:
+          options:
+            - "3"
+            - "4"
+            - "5"
+            - "6"
+            - "7"
+          translation_key: orientation
+    scaling:
+      example: fit
+      selector:
+        select:
+          options:
+            - auto
+            - auto-fit
+            - fill
+            - fit
+            - none
+          translation_key: scaling
