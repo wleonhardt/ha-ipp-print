@@ -86,6 +86,7 @@ const CARD_TRANSLATIONS = {
     "action.cancel": "Cancel print",
     "action.replace": "Replace",
     "action.clear": "Clear",
+    "action.preview": "Preview",
     "action.submitting": "Submitting…",
     "action.printing": "Printing…",
     "accessibility.two_sided": "Two-sided print",
@@ -102,6 +103,8 @@ const CARD_TRANSLATIONS = {
     "field.paper": "Paper",
     "field.tray": "Tray",
     "field.quality": "Quality",
+    "field.orientation": "Orientation",
+    "field.scaling": "Scaling",
     "file.hint": "PDF or image",
     "status.ready": "Ready to print",
     "status.choose": "Choose a document",
@@ -133,6 +136,15 @@ const CARD_TRANSLATIONS = {
     "choice.draft": "Draft",
     "choice.normal": "Normal",
     "choice.best": "Best",
+    "choice.portrait": "Portrait",
+    "choice.landscape": "Landscape",
+    "choice.reverse_landscape": "Reverse landscape",
+    "choice.reverse_portrait": "Reverse portrait",
+    "choice.document_orientation": "Document orientation",
+    "choice.auto_fit": "Automatic fit",
+    "choice.fill_page": "Fill page",
+    "choice.fit_page": "Fit to page",
+    "choice.actual_size": "Actual size",
     "paper.letter": "Letter",
     "paper.legal": "Legal",
     "paper.executive": "Executive",
@@ -807,7 +819,7 @@ C.prototype.setConfig = function (config) {
   const previousConfig = this._config;
   const previousEntity = this._config?.entity;
   this._config = Object.assign({ copies: 1, duplex: false, binding: 'two-sided-long-edge' }, config || {});
-  this._settings ||= { copies: this._config.copies, binding: this._config.binding, media: '', media_source: '', color_mode: '', quality: '' };
+  this._settings ||= { copies: this._config.copies, binding: this._config.binding, media: '', media_source: '', color_mode: '', quality: '', orientation: '', scaling: '' };
   for (const key of ['copies','binding','duplex']) {
     if (previousConfig?.[key] !== this._config[key]) (this._pendingSettings ||= {})[key] = this._config[key];
   }
@@ -845,6 +857,7 @@ C.prototype._render = function () {
       .file-name { font-size: 14px; line-height: 20px; color: var(--secondary-text-color); overflow-wrap: anywhere; }
       .file-actions { display: flex; gap: 8px; margin-top: 8px; }
       .file-actions button { flex: 1; min-width: 0; padding: 8px 4px; }
+      .preview { display: block; max-width: 100%; max-height: 160px; margin-top: 8px; border-radius: 8px; object-fit: contain; }
     </style>
     <${shell} class="document-body">
       <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div><button class="options-button" type="button" aria-expanded="false" aria-controls="options" data-i18n-label="dialog.title" title=""><ha-icon icon="mdi:tune" aria-hidden="true"></ha-icon></button></div>
@@ -853,7 +866,8 @@ C.prototype._render = function () {
       <div class="controls">
         <label class="toggle"><span data-i18n="action.two_sided"></span><input class="two-sided" type="checkbox" role="switch" data-i18n-label="accessibility.two_sided"></label>
         <div class="file-name"></div>
-        <div class="file-actions" hidden><button class="replace" type="button" data-i18n="action.replace"></button><button class="clear" type="button" data-i18n="action.clear"></button></div>
+        <img class="preview" alt="" hidden>
+        <div class="file-actions" hidden><button class="preview-button" type="button" data-i18n="action.preview"></button><button class="replace" type="button" data-i18n="action.replace"></button><button class="clear" type="button" data-i18n="action.clear"></button></div>
       </div>
       <div class="actions">
         <button class="primary" type="button"></button>
@@ -869,6 +883,7 @@ C.prototype._render = function () {
   this._primaryEl = root.querySelector('.primary');
   this._fileNameEl = root.querySelector('.file-name');
   this._fileActionsEl = root.querySelector('.file-actions');
+  this._previewEl = root.querySelector('.preview');
   this._titleEl.textContent = this._config.title || this._t('card.title');
   this._twoSidedEl = root.querySelector('.two-sided');
   this._twoSidedEl.addEventListener('change', () => {
@@ -881,9 +896,14 @@ C.prototype._render = function () {
   });
   this._cancelEl.addEventListener('click', () => this._cancelJob());
   root.querySelector('.replace').addEventListener('click', () => this._pick());
+  root.querySelector('.preview-button').addEventListener('click', () => {
+    // Browser-native preview of the staged document; the printer's own
+    // orientation and scaling are not reflected here.
+    if (this._previewUrl) window.open(this._previewUrl, '_blank', 'noopener');
+  });
   root.querySelector('.clear').addEventListener('click', () => {
     if (this._busy || this._activeJobId != null) return;
-    this._stagedFile = null;
+    this._releaseStagedFile();
     this._setStatus('');
     this._syncControls();
   });
@@ -918,6 +938,8 @@ C.prototype._syncControls = function () {
   setText(this._fileNameEl, (this._activeJobId != null ? this._jobFilename : this._stagedFile?.name) || this._t('file.hint'));
   this._fileActionsEl.hidden = !this._stagedFile || locked;
   for (const button of this._fileActionsEl.querySelectorAll('button')) button.disabled = locked;
+  this._fileActionsEl.querySelector('.preview-button').hidden = !this._previewUrl;
+  this._previewEl.hidden = !(this._stagedFile && this._previewUrl && this._stagedFile.type?.startsWith('image/'));
   this._syncOptions(locked || offline);
   if (!locked && this._stagedFile && this._settingsError) this._primaryEl.disabled = true;
   this._syncActivity();
@@ -932,12 +954,23 @@ function fileError(file, hass) {
   return null;
 }
 
+C.prototype._releaseStagedFile = function () {
+  if (this._previewUrl) URL.revokeObjectURL(this._previewUrl);
+  this._previewUrl = null;
+  this._previewEl.removeAttribute('src');
+  this._stagedFile = null;
+};
+
 C.prototype._stageFile = function (file) {
   if (this._busy || this._activeJobId != null) return;
   const error = fileError(file, this._hass);
   if (error) { this._setStatus(error, 'err'); return; }
   this._stopProgress();
+  this._releaseStagedFile();
   this._stagedFile = file;
+  // Object URLs are browser-native; a host without them simply has no preview.
+  this._previewUrl = typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : null;
+  if (this._previewUrl && file.type?.startsWith('image/')) this._previewEl.src = this._previewUrl;
   this._jobFilename = null;
   this._warningEl.textContent = '';
   this._setMessage('status.ready');
@@ -1102,14 +1135,14 @@ C.prototype._upload = async function (file) {
     const options = this._optionCapabilities?.body?.request_options || [];
     if (this._settingsError) { definitelyRejected = true; throw new Error(this._settingsError); }
     if ((!options.includes('copies') && this._settings.copies !== 1)
-        || ['media','media_source','color_mode','quality'].some(key => this._settings[key] && !options.includes(key))) {
+        || PRINT_OPTION_KEYS.some(key => this._settings[key] && !options.includes(key))) {
       definitelyRejected = true;
       throw new Error(this._t('error.settings'));
     }
     if (this._duplex && !options.includes('sides')) { definitelyRejected = true; throw new Error(this._t('error.duplex')); }
     if (options.includes('copies')) form.append('copies', String(this._settings.copies));
     if (options.includes('sides')) form.append('sides', this._duplex ? this._settings.binding : 'one-sided');
-    for (const key of ['media', 'media_source', 'color_mode', 'quality']) {
+    for (const key of PRINT_OPTION_KEYS) {
       if (this._settings[key] && options.includes(key)) form.append(key, String(this._settings[key]));
     }
     // Returns the printer-assigned job-id we then track via the job sensor.
@@ -1134,7 +1167,7 @@ C.prototype._upload = async function (file) {
     }
     if (!isCurrent()) throw new Error(this._t('error.changed'));
     const name = typeof body.filename === 'string' && body.filename ? body.filename : file.name;
-    this._stagedFile = null;
+    this._releaseStagedFile();
     this._jobFilename = name;
     this._activeJobId = body?.job_id ?? null;
     this._activeSensorId = sensorId;
@@ -1145,7 +1178,7 @@ C.prototype._upload = async function (file) {
     this._warningEl.textContent = typeof body.warning === 'string' ? body.warning : '';
     this._lastJobSig = null;
   } catch (err) {
-    if (!definitelyRejected) this._stagedFile = null;
+    if (!definitelyRejected) this._releaseStagedFile();
     const guidance = definitelyRejected ? '' : this._msg('help.uncertain');
     if (this.isConnected) this._setMessage('status.submit_failed', { error: err?.message || err, guidance }, 'err');
   } finally {
@@ -1397,6 +1430,9 @@ try {
 
 
 
+// Printer-advertised job options beyond copies and sides, in Options panel order.
+const PRINT_OPTION_KEYS = ['media', 'media_source', 'color_mode', 'quality', 'orientation', 'scaling'];
+
 // Display labels only: the original advertised keywords remain option values.
 function readableKeyword(value) {
   return String(value).replace(/[_-]+/g, ' ').replace(/\b[a-z]/g, letter => letter.toUpperCase());
@@ -1434,6 +1470,8 @@ function printOptionLabel(key, value, hass) {
     media_source: { auto: localize('choice.automatic', {}, hass), manual: localize('choice.manual_feed', {}, hass), 'by-pass-tray': localize('choice.bypass', {}, hass), 'main': localize('choice.main_tray', {}, hass), 'alternate': localize('choice.alternate_tray', {}, hass) },
     color_mode: { auto: localize('choice.automatic', {}, hass), 'auto-monochrome': localize('choice.auto_monochrome', {}, hass), monochrome: localize('choice.monochrome', {}, hass), color: localize('field.color', {}, hass) },
     quality: { 3: localize('choice.draft', {}, hass), 4: localize('choice.normal', {}, hass), 5: localize('choice.best', {}, hass) },
+    orientation: { 3: localize('choice.portrait', {}, hass), 4: localize('choice.landscape', {}, hass), 5: localize('choice.reverse_landscape', {}, hass), 6: localize('choice.reverse_portrait', {}, hass), 7: localize('choice.document_orientation', {}, hass) },
+    scaling: { auto: localize('choice.automatic', {}, hass), 'auto-fit': localize('choice.auto_fit', {}, hass), fill: localize('choice.fill_page', {}, hass), fit: localize('choice.fit_page', {}, hass), none: localize('choice.actual_size', {}, hass) },
   };
   const label = labels[key]?.[value];
   return typeof label === 'string' ? label : readableKeyword(value);
@@ -1449,6 +1487,8 @@ C.prototype._installOptions = function () {
     media_source: addOptionField(panel, 'media_source', 'field.tray'),
     color_mode: addOptionField(panel, 'color_mode', 'field.color'),
     quality: addOptionField(panel, 'quality', 'field.quality'),
+    orientation: addOptionField(panel, 'orientation', 'field.orientation'),
+    scaling: addOptionField(panel, 'scaling', 'field.scaling'),
   };
   for (const [key, field] of Object.entries(this._optionFields)) {
     field.addEventListener('change', () => {
@@ -1456,7 +1496,7 @@ C.prototype._installOptions = function () {
       if (key === 'entity_id') {
         this._selectedEntity = field.value || null;
         this._optionCapabilities = null; this._optionsRequest?.abort();
-        this._settings.media = this._settings.media_source = this._settings.color_mode = this._settings.quality = '';
+        for (const option of PRINT_OPTION_KEYS) this._settings[option] = '';
         this._refreshOptions();
       } else this._settings[key] = key === 'copies' ? Number(field.value) : field.value;
       this._syncControls();
@@ -1534,7 +1574,8 @@ C.prototype._syncOptions = function (locked) {
   const sides = Array.isArray(supported.sides) ? supported.sides : ['two-sided-long-edge','two-sided-short-edge'];
   optionChoices(fields.binding, [['two-sided-long-edge', this._t('choice.long_edge'), !sides.includes('two-sided-long-edge')], ['two-sided-short-edge', this._t('choice.short_edge'), !sides.includes('two-sided-short-edge')]], settings.binding);
   fields.binding.disabled = locked || !this._duplex || !options.includes('sides');
-  const lists = { media: supported.media, media_source: supported.media_sources, color_mode: supported.color_modes, quality: supported.qualities };
+  const lists = { media: supported.media, media_source: supported.media_sources, color_mode: supported.color_modes, quality: supported.qualities,
+    orientation: supported.orientations, scaling: supported.scalings };
   for (const [key, list] of Object.entries(lists)) {
     const choices = Array.isArray(list) ? list.filter(x => typeof x === 'string' || Number.isInteger(x)).slice(0,128) : [];
     if (settings[key] && !choices.some(x => String(x) === String(settings[key]))) {

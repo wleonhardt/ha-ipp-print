@@ -544,6 +544,55 @@ test('new print backend receives explicit defaults and complete selected setting
   assert.match(el._warningEl.textContent,/substituted/);
   assert.equal(el._optionFields.media.disabled,true);
 });
+test('orientation and scaling follow the advertised lists and travel with the upload', async () => {
+  const caps=optionCaps();caps.request_options.push('orientation','scaling');
+  caps.supported.orientations=[3,4,7];caps.supported.scalings=['auto','fit'];
+  const win=boot(),el=mount(win);
+  const {hass,calls}=makeHass(win,{capabilitiesImpl:async()=>jsonResponse(caps),
+    fetchImpl:async()=>jsonResponse({job_id:24,filename:'wide.jpg'})});
+  el.hass=hass;const chosen=file(win,'wide.jpg','image/jpeg');el._stageFile(chosen);await tick();
+  el._toggleOptions(true);
+  const orientation=el._optionFields.orientation,scaling=el._optionFields.scaling;
+  assert.deepEqual([...orientation.options].map(o=>o.value),['','3','4','7']);
+  assert.deepEqual([...orientation.options].map(o=>o.textContent),['Device default','Portrait','Landscape','Document orientation']);
+  assert.deepEqual([...scaling.options].map(o=>o.textContent),['Device default','Automatic','Fit to page']);
+  changeOption(win,el,'orientation','4');changeOption(win,el,'scaling','fit');
+  await el._upload(chosen);const body=calls.fetch[0].init.body;
+  assert.equal(body.get('orientation'),'4');assert.equal(body.get('scaling'),'fit');
+  assert.equal(el._settings.orientation,'4');
+});
+test('options hide orientation and scaling when the printer does not advertise them', async () => {
+  const win=boot(),el=mount(win);
+  const {hass}=makeHass(win,{capabilitiesImpl:async()=>jsonResponse(optionCaps())});
+  el.hass=hass;el._stageFile(file(win,'plain.pdf','application/pdf'));await tick();
+  assert.equal(el._optionFields.orientation.disabled,true);
+  assert.equal(el._optionFields.scaling.disabled,true);
+  assert.equal([...el._optionFields.scaling.options].length,1);
+});
+test('staged files get a browser-native preview that is released with the file', async () => {
+  const win=boot(),el=mount(win);const {hass}=makeHass(win);el.hass=hass;
+  const urls=[],revoked=[],opened=[];let n=0;
+  win.URL.createObjectURL=()=>{const url='blob:card/'+(++n);urls.push(url);return url;};
+  win.URL.revokeObjectURL=url=>revoked.push(url);win.open=(...args)=>opened.push(args);
+  const button=el.shadowRoot.querySelector('.preview-button');
+  assert.equal(el._fileActionsEl.hidden,true);
+  el._stageFile(file(win,'photo.jpg','image/jpeg'));
+  assert.equal(el._previewEl.hidden,false);assert.equal(el._previewEl.getAttribute('src'),urls[0]);
+  assert.equal(button.hidden,false);assert.equal(button.textContent,'Preview');
+  button.click();assert.deepEqual(opened,[[urls[0],'_blank','noopener']]);
+  el._stageFile(file(win,'doc.pdf','application/pdf'));
+  assert.deepEqual(revoked,[urls[0]]);assert.equal(el._previewEl.hidden,true);assert.equal(el._previewEl.hasAttribute('src'),false);
+  assert.equal(button.hidden,false);
+  el.shadowRoot.querySelector('.clear').click();
+  assert.deepEqual(revoked,urls);assert.equal(el._previewUrl,null);assert.equal(el._fileActionsEl.hidden,true);
+});
+test('a host without object URLs still stages files and offers no preview', async () => {
+  const win=boot(),el=mount(win);const {hass}=makeHass(win);el.hass=hass;
+  delete win.URL.createObjectURL;
+  const chosen=file(win,'photo.png','image/png');el._stageFile(chosen);
+  assert.equal(el._stagedFile,chosen);assert.equal(el._previewEl.hidden,true);
+  assert.equal(el.shadowRoot.querySelector('.preview-button').hidden,true);
+});
 test('print dialog preserves focus, validates copies and defers editor changes during an upload', async () => {
   const win=boot(),el=mount(win);let finish;
   const {hass}=makeHass(win,{capabilitiesImpl:async()=>jsonResponse(optionCaps()),
@@ -801,7 +850,7 @@ test('translation text and placeholder data cannot create HTML', () => {
   card.hass = { states: {}, entities: {}, locale: { language: 'fr' } };
   card._setMessage('status.cancel_failed', { error: markup + ' $&' }, 'err');
   assert.equal(card._statusEl.textContent, 'ERROR ' + markup + ' $&');
-  assert.equal(card.shadowRoot.querySelector('img'), null);
+  assert.equal(card.shadowRoot.querySelector('img[src="x"], img[onerror]'), null);
   assert.equal(card._titleEl.textContent, markup, 'custom title remains literal user data');
   assert.equal(card._optionsPanel.querySelector('h2').textContent, markup);
 });
