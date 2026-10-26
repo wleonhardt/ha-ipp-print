@@ -2,14 +2,16 @@
 
 ## Queue
 
-- Orientation, scaling and preview released as 0.12.0 on 2026-10-26 (issue #8).
+- Orientation, scaling and preview released as 0.12.0, then 0.12.1 on
+  2026-10-26 (issue #8) after the companion-app Preview defect found over adb.
   Two advertised-only options on the card, service and upload endpoint; browser
   native image thumbnail and Preview action. 302 Python / 69 card tests, all
   seven hosted checks and the release workflow pass. Three read-only Validate-Job
   combinations accepted by the HP; no physical job sent. Installed through
   HACS the same day: files match the tag, entry loaded after restart, live card
   shows thumbnail, Preview, Orientation and Scaling, and fits a 358 px host.
-  Awaiting requester feedback on their printer.
+  0.12.1 verified on the physical phone: inline PDF preview fallback, nine
+  Options fields, Done keeps the file. Awaiting requester feedback.
   [Plan](2026-10-26-orientation-scaling-preview.md).
 
 - Paired documentation overhauled on 2026-10-10: 70-line quick starts plus

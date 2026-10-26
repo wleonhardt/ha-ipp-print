@@ -1,6 +1,6 @@
 # Orientation, scaling and preview (issue #8)
 
-Status: released as 0.12.0 (2026-10-26)
+Status: released as 0.12.1 and installed (2026-10-26)
 
 ## Request
 
@@ -62,3 +62,25 @@ See [decisions/2026-10-26-orientation-scaling-preview.md](decisions/2026-10-26-o
   320 × 160, three 106 px file actions, nine full-width fields, and the Options
   panel scrolls inside its 740 px limit. This was an in-page width constraint,
   not a physical phone; no job was submitted and the staged file was cleared.
+
+## Phone check and 0.12.1 — 2026-10-26
+
+Driven over adb on the user's OnePlus (CPH2655, Android 16, companion app
+2026.6.5) with rotation locked to portrait during the check and restored after.
+
+- 0.12.0: a JPEG picked through the system picker staged with its thumbnail;
+  Preview, Replace and Clear fit side by side. **Defect:** Preview called
+  `window.open` on a blob URL, the companion WebView replaced the dashboard
+  with a blank page, and Back reloaded the dashboard and lost the chosen file.
+- 0.12.1 fix: no navigation. Images keep the thumbnail and no longer show a
+  Preview button; a chosen PDF toggles an inline native `object` with fallback
+  text where the browser cannot render PDFs. Installed through HACS after the
+  hosted checks and release passed; all 20 files match the tag; one restart
+  with the printer idle; entry loaded with the new card hash.
+- 0.12.1 on the phone: a PDF stages, Preview shows the fallback notice inside
+  the card, Hide preview restores the layout, the file stays chosen. Options
+  shows all nine fields; the native picker lists the five orientations;
+  Landscape selects; Done closes without losing the file. Nothing printed;
+  the staged file was cleared and the test files removed from the phone.
+- Polish left open: on browsers without a PDF viewer the fallback box keeps
+  the 320 px preview height. `navigator.pdfViewerEnabled` could collapse it.
