@@ -112,4 +112,10 @@ Driven over adb on the user's OnePlus (CPH2655, Android 16, companion app
   Three quick Preview taps leave it open (odd count), so no double-toggle
   race. Clear hides everything and returns to Choose file. The system picker
   greys out non-PDF/image files, so the invalid-type path cannot be reached
-  from the phone. Nothing printed; staged file cleared, test files removed.
+  from the phone. Staged file cleared, test files removed.
+- Real print from the phone with the preview open: the first attempt, a
+  hand-written PDF without an xref table, was accepted as job 377 and the HP
+  aborted it with `document-format-error`; the card showed the failure and
+  cleared the file. A valid one-page PDF went through as job 378: Uploading,
+  Printing with Cancel print, then Print complete (1 page). One sheet printed.
+  Both jobs appear in Recent activity with the right states.

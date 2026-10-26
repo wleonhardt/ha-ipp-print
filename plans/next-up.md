@@ -16,7 +16,8 @@
   no PDF viewer. 71 card / 302 Python tests and hosted checks pass. Installed
   through HACS (files match the tag, entry loaded after restart) and verified
   on the phone: compact notice, preview state survives Options, resume and a
-  cancelled picker, Replace and Clear behave. Awaiting requester feedback.
+  cancelled picker, Replace and Clear behave. One real page printed from the
+  phone as job 378. Awaiting requester feedback.
   [Plan](2026-10-26-orientation-scaling-preview.md).
 
 - Paired documentation overhauled on 2026-10-10: 70-line quick starts plus
