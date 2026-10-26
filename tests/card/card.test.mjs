@@ -569,29 +569,33 @@ test('options hide orientation and scaling when the printer does not advertise t
   assert.equal(el._optionFields.scaling.disabled,true);
   assert.equal([...el._optionFields.scaling.options].length,1);
 });
-test('staged files get a browser-native preview that is released with the file', async () => {
+test('images get a thumbnail and PDFs an inline preview, both released with the file', async () => {
   const win=boot(),el=mount(win);const {hass}=makeHass(win);el.hass=hass;
-  const urls=[],revoked=[],opened=[];let n=0;
+  const urls=[],revoked=[];let n=0;
   win.URL.createObjectURL=()=>{const url='blob:card/'+(++n);urls.push(url);return url;};
-  win.URL.revokeObjectURL=url=>revoked.push(url);win.open=(...args)=>opened.push(args);
-  const button=el.shadowRoot.querySelector('.preview-button');
+  win.URL.revokeObjectURL=url=>revoked.push(url);win.open=()=>{throw new Error('must never navigate');};
+  const button=el._previewButton,doc=el._previewDocEl;
   assert.equal(el._fileActionsEl.hidden,true);
   el._stageFile(file(win,'photo.jpg','image/jpeg'));
   assert.equal(el._previewEl.hidden,false);assert.equal(el._previewEl.getAttribute('src'),urls[0]);
-  assert.equal(button.hidden,false);assert.equal(button.textContent,'Preview');
-  button.click();assert.deepEqual(opened,[[urls[0],'_blank','noopener']]);
+  assert.equal(button.hidden,true,'thumbnail is the image preview');assert.equal(doc.hidden,true);
   el._stageFile(file(win,'doc.pdf','application/pdf'));
   assert.deepEqual(revoked,[urls[0]]);assert.equal(el._previewEl.hidden,true);assert.equal(el._previewEl.hasAttribute('src'),false);
-  assert.equal(button.hidden,false);
-  el.shadowRoot.querySelector('.clear').click();
-  assert.deepEqual(revoked,urls);assert.equal(el._previewUrl,null);assert.equal(el._fileActionsEl.hidden,true);
+  assert.equal(button.hidden,false);assert.equal(button.textContent,'Preview');assert.equal(doc.hidden,true);
+  button.click();
+  assert.equal(doc.hidden,false);assert.equal(doc.getAttribute('data'),urls[1]);assert.equal(button.textContent,'Hide preview');
+  assert.match(doc.querySelector('p').textContent,/cannot show PDFs/);
+  button.click();assert.equal(doc.hidden,true);assert.equal(doc.hasAttribute('data'),false);
+  button.click();el.shadowRoot.querySelector('.clear').click();
+  assert.deepEqual(revoked,urls);assert.equal(el._previewUrl,null);assert.equal(el._previewOpen,false);
+  assert.equal(doc.hidden,true);assert.equal(doc.hasAttribute('data'),false);assert.equal(el._fileActionsEl.hidden,true);
 });
 test('a host without object URLs still stages files and offers no preview', async () => {
   const win=boot(),el=mount(win);const {hass}=makeHass(win);el.hass=hass;
   delete win.URL.createObjectURL;
-  const chosen=file(win,'photo.png','image/png');el._stageFile(chosen);
+  const chosen=file(win,'doc.pdf','application/pdf');el._stageFile(chosen);
   assert.equal(el._stagedFile,chosen);assert.equal(el._previewEl.hidden,true);
-  assert.equal(el.shadowRoot.querySelector('.preview-button').hidden,true);
+  assert.equal(el._previewButton.hidden,true);assert.equal(el._previewDocEl.hidden,true);
 });
 test('print dialog preserves focus, validates copies and defers editor changes during an upload', async () => {
   const win=boot(),el=mount(win);let finish;

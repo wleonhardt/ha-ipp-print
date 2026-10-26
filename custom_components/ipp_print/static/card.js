@@ -87,6 +87,8 @@ const CARD_TRANSLATIONS = {
     "action.replace": "Replace",
     "action.clear": "Clear",
     "action.preview": "Preview",
+    "action.hide_preview": "Hide preview",
+    "preview.unsupported": "This browser cannot show PDFs here. The file prints as chosen.",
     "action.submitting": "Submitting…",
     "action.printing": "Printing…",
     "accessibility.two_sided": "Two-sided print",
@@ -858,6 +860,8 @@ C.prototype._render = function () {
       .file-actions { display: flex; gap: 8px; margin-top: 8px; }
       .file-actions button { flex: 1; min-width: 0; padding: 8px 4px; }
       .preview { display: block; max-width: 100%; max-height: 160px; margin-top: 8px; border-radius: 8px; object-fit: contain; }
+      .preview-doc { display: block; width: 100%; height: 320px; margin-top: 8px; border: 1px solid var(--divider-color); border-radius: 8px; }
+      .preview-doc p { margin: 0; padding: 12px; font-size: 14px; color: var(--secondary-text-color); }
     </style>
     <${shell} class="document-body">
       <div class="header"><ha-icon class="icon" icon="mdi:printer" aria-hidden="true"></ha-icon><div class="title"></div><button class="options-button" type="button" aria-expanded="false" aria-controls="options" data-i18n-label="dialog.title" title=""><ha-icon icon="mdi:tune" aria-hidden="true"></ha-icon></button></div>
@@ -867,7 +871,8 @@ C.prototype._render = function () {
         <label class="toggle"><span data-i18n="action.two_sided"></span><input class="two-sided" type="checkbox" role="switch" data-i18n-label="accessibility.two_sided"></label>
         <div class="file-name"></div>
         <img class="preview" alt="" hidden>
-        <div class="file-actions" hidden><button class="preview-button" type="button" data-i18n="action.preview"></button><button class="replace" type="button" data-i18n="action.replace"></button><button class="clear" type="button" data-i18n="action.clear"></button></div>
+        <object class="preview-doc" type="application/pdf" hidden><p data-i18n="preview.unsupported"></p></object>
+        <div class="file-actions" hidden><button class="preview-button" type="button"></button><button class="replace" type="button" data-i18n="action.replace"></button><button class="clear" type="button" data-i18n="action.clear"></button></div>
       </div>
       <div class="actions">
         <button class="primary" type="button"></button>
@@ -884,6 +889,8 @@ C.prototype._render = function () {
   this._fileNameEl = root.querySelector('.file-name');
   this._fileActionsEl = root.querySelector('.file-actions');
   this._previewEl = root.querySelector('.preview');
+  this._previewDocEl = root.querySelector('.preview-doc');
+  this._previewButton = root.querySelector('.preview-button');
   this._titleEl.textContent = this._config.title || this._t('card.title');
   this._twoSidedEl = root.querySelector('.two-sided');
   this._twoSidedEl.addEventListener('change', () => {
@@ -896,10 +903,11 @@ C.prototype._render = function () {
   });
   this._cancelEl.addEventListener('click', () => this._cancelJob());
   root.querySelector('.replace').addEventListener('click', () => this._pick());
-  root.querySelector('.preview-button').addEventListener('click', () => {
-    // Browser-native preview of the staged document; the printer's own
-    // orientation and scaling are not reflected here.
-    if (this._previewUrl) window.open(this._previewUrl, '_blank', 'noopener');
+  this._previewButton.addEventListener('click', () => {
+    // Inline, browser-native PDF preview. Never navigate: the companion
+    // app's WebView replaces the dashboard for new windows and blob URLs.
+    this._previewOpen = !this._previewOpen;
+    this._syncControls();
   });
   root.querySelector('.clear').addEventListener('click', () => {
     if (this._busy || this._activeJobId != null) return;
@@ -938,8 +946,14 @@ C.prototype._syncControls = function () {
   setText(this._fileNameEl, (this._activeJobId != null ? this._jobFilename : this._stagedFile?.name) || this._t('file.hint'));
   this._fileActionsEl.hidden = !this._stagedFile || locked;
   for (const button of this._fileActionsEl.querySelectorAll('button')) button.disabled = locked;
-  this._fileActionsEl.querySelector('.preview-button').hidden = !this._previewUrl;
-  this._previewEl.hidden = !(this._stagedFile && this._previewUrl && this._stagedFile.type?.startsWith('image/'));
+  const image = !!this._stagedFile?.type?.startsWith('image/');
+  this._previewEl.hidden = !(this._stagedFile && this._previewUrl && image);
+  this._previewButton.hidden = !this._previewUrl || image;
+  this._previewButton.textContent = this._t(this._previewOpen ? 'action.hide_preview' : 'action.preview');
+  const docUrl = this._previewOpen && this._previewUrl && !image ? this._previewUrl : null;
+  if (docUrl) this._previewDocEl.setAttribute('data', docUrl);
+  else this._previewDocEl.removeAttribute('data');
+  this._previewDocEl.hidden = !docUrl;
   this._syncOptions(locked || offline);
   if (!locked && this._stagedFile && this._settingsError) this._primaryEl.disabled = true;
   this._syncActivity();
@@ -957,7 +971,9 @@ function fileError(file, hass) {
 C.prototype._releaseStagedFile = function () {
   if (this._previewUrl) URL.revokeObjectURL(this._previewUrl);
   this._previewUrl = null;
+  this._previewOpen = false;
   this._previewEl.removeAttribute('src');
+  this._previewDocEl.removeAttribute('data');
   this._stagedFile = null;
 };
 

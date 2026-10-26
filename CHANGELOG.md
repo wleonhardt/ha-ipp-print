@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.12.1] - 2026-10-26
+
+### Fixed
+- Preview no longer opens a new window. In the Home Assistant Android app
+  that replaced the dashboard with a blank page and lost the chosen file.
+  Images keep their thumbnail; a chosen PDF now previews inline where the
+  browser can render PDFs and shows a short notice where it cannot.
+
 ## [0.12.0] - 2026-10-26
 
 ### Added
