@@ -954,8 +954,10 @@ C.prototype._syncControls = function () {
   this._previewButton.hidden = !this._previewUrl || image;
   this._previewButton.textContent = this._t(this._previewOpen ? 'action.hide_preview' : 'action.preview');
   const docUrl = this._previewOpen && this._previewUrl && !image ? this._previewUrl : null;
-  if (docUrl) this._previewDocEl.setAttribute('data', docUrl);
-  else this._previewDocEl.removeAttribute('data');
+  // Rewriting an identical data attribute reloads the PDF viewer on every
+  // state update, which flickers; only touch it when the URL changes.
+  if (docUrl && this._previewDocEl.getAttribute('data') !== docUrl) this._previewDocEl.setAttribute('data', docUrl);
+  else if (!docUrl) this._previewDocEl.removeAttribute('data');
   this._previewDocEl.hidden = !docUrl;
   this._syncOptions(locked || offline);
   if (!locked && this._stagedFile && this._settingsError) this._primaryEl.disabled = true;

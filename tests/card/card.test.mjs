@@ -590,6 +590,17 @@ test('images get a thumbnail and PDFs an inline preview, both released with the 
   assert.deepEqual(revoked,urls);assert.equal(el._previewUrl,null);assert.equal(el._previewOpen,false);
   assert.equal(doc.hidden,true);assert.equal(doc.hasAttribute('data'),false);assert.equal(el._fileActionsEl.hidden,true);
 });
+test('an open PDF preview is not reloaded by state updates', async () => {
+  const win=boot(),el=mount(win);const {hass}=makeHass(win);el.hass=hass;
+  win.URL.createObjectURL=()=>'blob:card/steady';win.URL.revokeObjectURL=()=>{};
+  const doc=el._previewDocEl;let sets=0;const original=doc.setAttribute.bind(doc);
+  doc.setAttribute=(name,value)=>{if(name==='data')sets++;return original(name,value);};
+  el._stageFile(file(win,'doc.pdf','application/pdf'));el._previewButton.click();
+  assert.equal(sets,1);assert.equal(doc.getAttribute('data'),'blob:card/steady');
+  for(let i=0;i<5;i++) el.hass={...hass};
+  el._syncControls();
+  assert.equal(sets,1,'identical data must not be written again');assert.equal(doc.hidden,false);
+});
 test('a host without object URLs still stages files and offers no preview', async () => {
   const win=boot(),el=mount(win);const {hass}=makeHass(win);el.hass=hass;
   delete win.URL.createObjectURL;

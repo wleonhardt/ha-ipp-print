@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.12.3] - 2026-10-27
+
+### Fixed
+- The inline PDF preview flickered on browsers with a PDF viewer because
+  every state update rewrote the preview's source and reloaded the viewer
+  (issue #8 follow-up report). The source is now set once per chosen file.
+
 ## [0.12.2] - 2026-10-26
 
 ### Fixed
