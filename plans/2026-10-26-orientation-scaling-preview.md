@@ -1,6 +1,6 @@
 # Orientation, scaling and preview (issue #8)
 
-Status: released as 0.12.1 and installed (2026-10-26)
+Status: released as 0.12.3 and installed (2026-10-27)
 
 ## Request
 
@@ -119,3 +119,16 @@ Driven over adb on the user's OnePlus (CPH2655, Android 16, companion app
   cleared the file. A valid one-page PDF went through as job 378: Uploading,
   Printing with Cancel print, then Print complete (1 page). One sheet printed.
   Both jobs appear in Recent activity with the right states.
+
+## Flickering PDF preview and 0.12.3 — 2026-10-27
+
+The requester (Canon G7050 behind CUPS) reported a blinking PDF preview on
+0.12.2. Every `hass` update ran `_syncControls`, which rewrote the preview
+object's `data` attribute with the same blob URL; Chromium reloads the PDF
+viewer on each write. Reproduced on the live desktop dashboard: ten state
+updates produced 28 attribute writes and 14 extra `load` events. 0.12.3 writes
+the attribute only when the URL changes, guarded by a jsdom regression test.
+Hosted checks and the release workflow pass. Installed through HACS, all 20
+files match the tag, one restart with the printer idle. On the live 0.12.3
+dashboard the same probe shows one write and one load across ten updates.
+Test file cleared; nothing printed. Replied on issue #8.

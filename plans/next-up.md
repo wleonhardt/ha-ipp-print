@@ -3,7 +3,9 @@
 ## Queue
 
 - Orientation, scaling and preview released as 0.12.0, then 0.12.1 on
-  2026-10-26 (issue #8) after the companion-app Preview defect found over adb.
+  2026-10-26 (issue #8) after the companion-app Preview defect found over adb;
+  0.12.3 on 2026-10-27 fixed the flickering desktop PDF preview the requester
+  reported, reproduced and verified live.
   Two advertised-only options on the card, service and upload endpoint; browser
   native image thumbnail and Preview action. 302 Python / 69 card tests, all
   seven hosted checks and the release workflow pass. Three read-only Validate-Job
