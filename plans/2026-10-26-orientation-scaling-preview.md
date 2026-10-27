@@ -132,3 +132,12 @@ Hosted checks and the release workflow pass. Installed through HACS, all 20
 files match the tag, one restart with the printer idle. On the live 0.12.3
 dashboard the same probe shows one write and one load across ten updates.
 Test file cleared; nothing printed. Replied on issue #8.
+
+## 0.12.3 on the phone — 2026-10-27
+
+Over adb with portrait locked (restored after). A PDF picked through the
+system picker staged; Preview showed the compact fallback notice; two
+screenshots eight seconds apart, spanning several state updates, were
+pixel-identical, so nothing flickers in the companion app either. Hide preview
+restored the row, Options listed all nine fields, Done closed and kept the
+file, Clear returned the card to idle. Nothing printed; test file removed.
