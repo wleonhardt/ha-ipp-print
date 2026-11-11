@@ -12,6 +12,7 @@ CONF_USER = "user"
 CONF_PASSWORD = "password"
 CONF_VERIFY_TLS = "verify_tls"
 CONF_RELAXED_CIPHERS = "relaxed_ciphers"
+CONF_IMAGES_AS_PDF = "images_as_pdf"
 
 DEFAULT_PORT = 443
 DEFAULT_PATH = "/ipp/print"

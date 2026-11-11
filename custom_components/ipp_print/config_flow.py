@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover - older cores
 
 from .const import (
     CONF_HOST,
+    CONF_IMAGES_AS_PDF,
     CONF_PASSWORD,
     CONF_PATH,
     CONF_PORT,
@@ -58,6 +59,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ): bool,
             vol.Optional(
                 CONF_RELAXED_CIPHERS, default=d.get(CONF_RELAXED_CIPHERS, False)
+            ): bool,
+            vol.Optional(
+                CONF_IMAGES_AS_PDF, default=d.get(CONF_IMAGES_AS_PDF, False)
             ): bool,
         }
     )

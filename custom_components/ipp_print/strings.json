@@ -12,7 +12,8 @@
           "user": "User",
           "password": "Password",
           "verify_tls": "Verify TLS certificate",
-          "relaxed_ciphers": "Allow legacy cipher suites"
+          "relaxed_ciphers": "Allow legacy cipher suites",
+          "images_as_pdf": "Send JPEG photos as PDF"
         },
         "data_description": {
           "port": "443 for IPPS, 631 for IPP, 80 for plain HTTP.",
@@ -21,7 +22,8 @@
           "user": "Sent as the IPP requesting-user-name. `anonymous` works for most printers.",
           "password": "Only if the printer requires HTTP basic auth.",
           "verify_tls": "Leave off for self-signed certificates (most consumer printers).",
-          "relaxed_ciphers": "Enable if the log shows SSLV3_ALERT_HANDSHAKE_FAILURE (some HP LaserJets only offer non-PFS ciphers)."
+          "relaxed_ciphers": "Enable if the log shows SSLV3_ALERT_HANDSHAKE_FAILURE (some HP LaserJets only offer non-PFS ciphers).",
+          "images_as_pdf": "Wraps a JPEG in a one-page PDF before printing, without re-encoding it. Turn on if JPEG photos print as blank pages (seen with CUPS queues). PDFs and PNGs are sent unchanged. Leave off otherwise."
         }
       },
       "zeroconf_confirm": {
@@ -56,7 +58,8 @@
           "user": "User",
           "password": "Password",
           "verify_tls": "Verify TLS certificate",
-          "relaxed_ciphers": "Allow legacy cipher suites"
+          "relaxed_ciphers": "Allow legacy cipher suites",
+          "images_as_pdf": "Send JPEG photos as PDF"
         },
         "data_description": {
           "port": "443 for IPPS, 631 for IPP, 80 for plain HTTP.",
@@ -65,7 +68,8 @@
           "user": "Sent as the IPP requesting-user-name. `anonymous` works for most printers.",
           "password": "Only if the printer requires HTTP basic auth.",
           "verify_tls": "Leave off for self-signed certificates (most consumer printers).",
-          "relaxed_ciphers": "Enable if the log shows SSLV3_ALERT_HANDSHAKE_FAILURE (some HP LaserJets only offer non-PFS ciphers)."
+          "relaxed_ciphers": "Enable if the log shows SSLV3_ALERT_HANDSHAKE_FAILURE (some HP LaserJets only offer non-PFS ciphers).",
+          "images_as_pdf": "Wraps a JPEG in a one-page PDF before printing, without re-encoding it. Turn on if JPEG photos print as blank pages (seen with CUPS queues). PDFs and PNGs are sent unchanged. Leave off otherwise."
         }
       }
     }

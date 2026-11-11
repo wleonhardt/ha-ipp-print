@@ -43,6 +43,7 @@ from .const import (
     CARD_FILENAME,
     CARD_URL_PREFIX,
     CONF_HOST,
+    CONF_IMAGES_AS_PDF,
     CONF_PASSWORD,
     CONF_PATH,
     CONF_PORT,
@@ -63,6 +64,7 @@ from .capability_cache import CapabilityCache
 from .capabilities import capability_snapshot, validate_copies
 from .connection import DeviceConnection
 from .diagnostics import record_blocked_format_probe
+from .image_pdf import jpeg_to_pdf, parse_jpeg
 from .coordinator import JobCoordinator
 from .printer import ORIENTATIONS, SCALINGS, SIDES, IppError, IppHttpError, PrinterClient, PrinterInfo, media_dimensions
 
@@ -164,6 +166,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "connection": connection,
             "printer_info": printer_info,
             "capability_cache": capability_cache,
+            "images_as_pdf": bool(data.get(CONF_IMAGES_AS_PDF, False)),
         }
 
         # Views look up the live coordinator/client from hass.data on every
@@ -471,6 +474,17 @@ async def _submit(
     info = live["printer_info"] = await cache.async_get()
     if cache.closed:
         raise SubmitError("printer integration unloaded; no job submitted", 503)
+    # Opt-in per printer: some print servers (CUPS + Canon, issue #8) print a
+    # native JPEG as a blank page but print PDFs correctly. The JPEG is
+    # embedded untouched in a one-page PDF and every later check, probe and
+    # validation runs against the PDF format the printer will actually get.
+    wrap_jpeg = (
+        bool(live.get("images_as_pdf")) and document_format == "image/jpeg"
+        and parse_jpeg(document) is not None
+        and (info is None or not info.formats or info.supports_format("application/pdf"))
+    )
+    if wrap_jpeg:
+        document_format = "application/pdf"
     # Unsupported formats may make Get-Printer-Attributes return 0x040a.
     # Reject known mismatches first so that refusal is not mislabeled as an
     # unreachable printer. Stale/unknown base data must not veto a fresh probe.
@@ -535,6 +549,12 @@ async def _submit(
         options["orientation"] = orientation
     if scaling is not None:
         options["scaling"] = scaling
+    payload = document
+    if wrap_jpeg:
+        page = media_dimensions(media or (info.media_default if info is not None else None))
+        payload = jpeg_to_pdf(document, page)
+        if payload is None:  # parse_jpeg accepted it above, so this is unreachable
+            raise SubmitError("could not prepare the JPEG for printing. No print job was submitted", 400)
     validation_warning = None
     if explicit:
         try:
@@ -546,7 +566,7 @@ async def _submit(
         result = await client.print_job(
             job_name=filename,
             document_format=document_format,
-            document=document,
+            document=payload,
             # Some HP firmware rejects duplex when media is implicit even
             # though media-default is loaded and sides-supported lists it.
             **options,
