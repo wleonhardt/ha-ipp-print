@@ -47,3 +47,19 @@ Canon G4000 Gutenprint queues (the closest Canon G-series MegaTank PPD Gutenprin
 - Alpine's cupsd refuses `file:` device queues ("could not open the output file"); a TCP sink on `socket://` was used instead.
 
 Not tested: Canon's own driver (cnijfilter2 is a licensed vendor download), CUPS 3.x, and Canon firmware.
+
+## Fourth round, 2026-11-12: urf-only queue and Printer Application
+
+Prompted by a Fedora report that a Canon MAXIFY on an IPP Everywhere queue misbehaved on the `image/urf` filter. Many Canon inkjets advertise urf and not jpeg, which would make CUPS convert the JPEG itself instead of forwarding it.
+
+- urf-only driverless queue: `ippeveprinter -f image/urf` advertises `document-format-supported = application/octet-stream,image/urf`, so CUPS 2.4.19 builds a queue with `*cupsFilter2: "image/urf image/urf 100 -"` and rasterizes the JPEG. Output was decoded with a small URF reader (scratchpad `urfstat.py`) and judged by mean pixel value against white (255). Not blank in any case:
+  - gray queue (the generated PPD offers only Gray because the simulator reports only `W8`): `lp` of five JPEGs (ordinary, gray, EXIF-rotated, CMYK, progressive) gave 8 bpp 5100x6600 at 600 dpi with mean 79 to 102 and 88% non-white pixels.
+  - the integration with card defaults, with print-scaling none, and with A4 plus orientation 4 gave the same pages (A4 came out 4960x7015).
+  - RGB queue (PPD patched to add `ColorModel RGB`, mimicking a printer that reports `SRGB24`): the same five JPEGs gave 24 bpp pages with mean 81 to 102.
+- `ippeveprinter -a` would not take the attribute file I wrote (it printed usage), so a color urf simulator came from the PPD patch, not from the attributes.
+- Printer Application route: built `gutenprint-printer-app` and `pappl-retrofit` from OpenPrinting git on Fedora 45 (pappl 1.4.12, libppd 2.1.1, libcupsfilters 2.2.1, Gutenprint 5.3.5). Debian trixie and sid cannot build it (no libppd or pappl-retrofit). With `FILTER_DIR=/usr/lib/cups/filter` it accepts the Canon G4000 driver. The integration with card defaults sent JPEGs to it over IPP; the output sent to a `socket://` sink was 18.3 MB for the color JPEGs and 3.5 MB for the gray one. Not blank.
+- Without `FILTER_DIR` the Printer Application refuses to add any driver ("No format found for printing in streaming mode"). That is a packaging problem in the container, not a printing result.
+- The integration's diagnostics download already includes the printer's capabilities and the supported-format probe, so the reporter can supply what an `ipptool` dump would show by downloading diagnostics.
+- A fixture-replay Canon simulator was not built: it needs the reporter's capability dump, and no public G7050 dump exists.
+
+Not tested: Canon firmware, cnijfilter2, CUPS 3.x.
