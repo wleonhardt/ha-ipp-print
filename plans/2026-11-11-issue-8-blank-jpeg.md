@@ -27,3 +27,11 @@ Conclusion: on CUPS 2.4.10 with cups-filters 1.28, a CUPS-rendered queue does no
 ## Next step
 
 Ask the reporter for the details listed above, mainly the queue's PPD or driverless setup and the CUPS error_log for a failing job. Wait for the maintainer's go-ahead before replying.
+
+## Second round, 2026-11-12
+
+- Driverless chain tested with `ippeveprinter` as a simulated Canon behind CUPS 2.4.10 (`-m everywhere` queue). CUPS forwards the JPEG bytes unchanged. `lp` forwards only sides, print-color-mode and print-quality.
+- The integration with an explicit media adds a `media-col` (size plus 6.35 mm margins, 3.4 mm side margins for A4) that `lp` does not send. This is the only attribute difference found.
+- CUPS drops `print-scaling` and `orientation-requested` on a passthrough queue, so the card's scaling and orientation options have no effect there.
+- Real HP M283fdw, JPEG sent directly to the firmware with card defaults: a 4000x3000 sRGB JPEG, an EXIF-rotated JPEG and a progressive JPEG completed with 1 sheet each. A CMYK JPEG put the printer into `processing-stopped` / `printer-stopped` with `other-error`; the queued job behind it was held. Both jobs were cancelled; the printer panel needs attention. Whether the first three sheets were non-blank has not been checked by eye.
+- A printer that can stall on a CMYK JPEG makes firmware JPEG decoding a plausible cause for issue 8, but the Canon has not been tested.
