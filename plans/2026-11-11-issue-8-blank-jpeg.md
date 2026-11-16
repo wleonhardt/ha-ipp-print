@@ -63,3 +63,21 @@ Prompted by a Fedora report that a Canon MAXIFY on an IPP Everywhere queue misbe
 - A fixture-replay Canon simulator was not built: it needs the reporter's capability dump, and no public G7050 dump exists.
 
 Not tested: Canon firmware, cnijfilter2, CUPS 3.x.
+
+## Fifth round, 2026-11-16: JPEG without an APPn segment reproduces a failure
+
+The reporter answered that the JPEG prints blank from IPP Print (used from a Windows PC) and prints correctly when printed directly from Windows. Windows renders the image itself, so that path never asks CUPS or the printer to decode the JPEG.
+
+Lead: OpenPrinting/libcupsfilters PR 302 (merged 2026-10-27, not yet in a distro release). The CUPS image filters only recognise a JPEG whose first marker after SOI is APPn (JFIF or Exif). A JPEG with its metadata stripped (starts `FF D8 FF DB` or similar) is rejected. The same check is in cups-filters 1.x. All JPEGs used in rounds one to four had an APPn segment, so this case was never tested.
+
+Reproduced on Debian trixie, CUPS 2.4.10, cups-filters 1.28.17, with a macOS wallpaper converted to JPEG and its APPn segments removed (byte-identical image data otherwise):
+
+- Generic PDF queue and PWG raster queue: normal JPEG gave 17 MB and 78 MB of output; the stripped JPEG gave 0 bytes. `error_log`: "Unable to open image file for printing!", `imagetopdf` / `imagetoraster` stopped with status 1, "Job stopped due to filter errors".
+- Gutenprint Canon G4000 queue to a socket sink: normal JPEG gave 16.8 MB; the stripped JPEG sent nothing to the printer.
+- urf-only driverless queue (simulated Canon): normal JPEG gave a 16.5 MB URF document; the stripped JPEG made CUPS send the printer a 4-byte document containing only `UNIR`, the start of the URF header. A real printer given an empty raster job may eject a blank sheet; that last step is not tested.
+- The integration saw `processing-stopped` with `job-completed-with-errors` for the stripped JPEG on both queues. The queue stayed enabled, so later PDF jobs would still print.
+- Inserting a 18-byte JFIF APP0 segment after SOI (image data untouched) made the same file print through the urf queue: 16.5 MB document, job completed with 1 sheet.
+
+Not established: whether the reporter's JPEG lacks an APPn segment, and whether their queue is a raster or driver queue (a passthrough queue would not run the image filter). Alpine and Fedora were not retested for this case; the PR text says libcupsfilters 2.2.1 has the same check.
+
+Possible fix, not built: before sending, insert a JFIF APP0 segment into a JPEG that has no APPn segment. It is lossless, needs only the standard library, and is user-visible, so it needs a version bump and CHANGELOG entry.
