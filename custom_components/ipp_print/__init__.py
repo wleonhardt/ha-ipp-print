@@ -57,6 +57,7 @@ from .const import (
     FORMAT_EXTENSIONS,
     MAX_UPLOAD_BYTES,
     SERVICE_PRINT_FILE,
+    ensure_jpeg_app_segment,
     sniff_format,
 )
 from .capability_cache import CapabilityCache
@@ -542,6 +543,8 @@ async def _submit(
         except Exception as exc:
             raise SubmitError(f"{exc}. No print job was submitted", 400) from exc
 
+    if document_format == "image/jpeg":
+        document = ensure_jpeg_app_segment(document)
     try:
         result = await client.print_job(
             job_name=filename,

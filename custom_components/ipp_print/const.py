@@ -56,3 +56,19 @@ def sniff_format(buf: bytes | bytearray) -> str | None:
     if PDF_MAGIC in head:
         return "application/pdf"
     return None
+
+
+_JFIF_APP0 = b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+
+
+def ensure_jpeg_app_segment(document: bytes | bytearray) -> bytes | bytearray:
+    """Give a JPEG with no APPn segment a minimal JFIF header.
+
+    CUPS image filters only recognise a JPEG whose first segment is APPn
+    (JFIF or Exif) and fail the job otherwise, which prints nothing or a
+    blank page. Files with stripped metadata have none. The image data is
+    not touched.
+    """
+    if len(document) < 4 or document[:3] != b"\xff\xd8\xff" or 0xE0 <= document[3] <= 0xEF:
+        return document
+    return document[:2] + _JFIF_APP0 + document[2:]

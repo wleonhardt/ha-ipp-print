@@ -81,3 +81,7 @@ Reproduced on Debian trixie, CUPS 2.4.10, cups-filters 1.28.17, with a macOS wal
 Not established: whether the reporter's JPEG lacks an APPn segment, and whether their queue is a raster or driver queue (a passthrough queue would not run the image filter). Alpine and Fedora were not retested for this case; the PR text says libcupsfilters 2.2.1 has the same check.
 
 Possible fix, not built: before sending, insert a JFIF APP0 segment into a JPEG that has no APPn segment. It is lossless, needs only the standard library, and is user-visible, so it needs a version bump and CHANGELOG entry.
+
+## Fix built, 2026-11-16 (v0.12.4)
+
+`ensure_jpeg_app_segment` in `const.py` inserts a minimal JFIF APP0 segment into a JPEG whose first segment is not APPn; `_submit` applies it to every `image/jpeg` job, so the card, the HTTP endpoint and the `print_file` service share it. Lab check on the urf-only queue (CUPS 2.4.10, cups-filters 1.28.17): `lp` of the stripped JPEG still sent a 4-byte document, while the integration sent the same file as a full 16.5 MB URF job that completed with 1 sheet; a normal JPEG was unchanged. Not verified on the reporter's printer.

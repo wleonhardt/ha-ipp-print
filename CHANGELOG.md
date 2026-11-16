@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 semver-ish `0.x`.
 
+## [0.12.4] - 2026-11-16
+
+### Fixed
+- A JPEG with no JFIF or Exif header (common after a website or app strips
+  the metadata) failed in the CUPS image filters and could come out as a
+  blank page or not at all (issue #8). Such a file now gets a minimal JFIF
+  header before it is sent; the image data is unchanged.
+
 ## [0.12.3] - 2026-10-27
 
 ### Fixed

@@ -434,3 +434,36 @@ async def test_cancel_submission_identity_prevents_stale_queue_id(hass, hass_cli
         })
         assert current.status == 200
         cancel.assert_awaited_once_with(7)
+
+
+JFIF_APP0 = b"\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+# A JPEG with its metadata stripped starts with a quantization table (DQT).
+BARE_JPEG = b"\xff\xd8\xff\xdb\x00\x43\x00 image data"
+
+
+def test_jpeg_without_app_segment_gets_a_jfif_header():
+    from custom_components.ipp_print.const import ensure_jpeg_app_segment
+
+    fixed = ensure_jpeg_app_segment(BARE_JPEG)
+    assert fixed == BARE_JPEG[:2] + JFIF_APP0 + BARE_JPEG[2:]
+    assert ensure_jpeg_app_segment(bytearray(BARE_JPEG)) == fixed
+    # Idempotent, and files that already carry JFIF or Exif are untouched.
+    assert ensure_jpeg_app_segment(fixed) == fixed
+    exif = b"\xff\xd8\xff\xe1\x00\x08Exif\x00\x00 image data"
+    assert ensure_jpeg_app_segment(exif) == exif
+
+
+async def test_print_sends_bare_jpeg_with_jfif_header(hass, hass_client):
+    """CUPS image filters reject a JPEG with no APPn segment (issue #8)."""
+    await _setup(hass)
+    with patch.object(
+        integration.PrinterClient, "print_job", new=AsyncMock(return_value=OK_RESULT)
+    ) as print_job, patch.object(JobCoordinator, "_ensure_poll_loop"):
+        client = await hass_client()
+        resp = await client.post(
+            "/api/ipp_print/print", data=_form(BARE_JPEG, filename="photo.jpg")
+        )
+        assert resp.status == 200
+    kwargs = print_job.await_args.kwargs
+    assert kwargs["document_format"] == "image/jpeg"
+    assert bytes(kwargs["document"]) == BARE_JPEG[:2] + JFIF_APP0 + BARE_JPEG[2:]
